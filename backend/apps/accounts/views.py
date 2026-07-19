@@ -11,10 +11,10 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
 from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -78,7 +78,15 @@ class OTPRequestView(APIView):
             ).count()
             >= settings.WIO_OTP_IP_REQUESTS_PER_HOUR
         )
-        cooling_down = latest is not None and latest.created_at >= resend_after
+        cooling_down = (
+            latest is not None and latest.expires_at > now and latest.created_at >= resend_after
+        )
+
+        # Do not strand a user behind the hourly email limit once their most
+        # recent code can no longer be used. Keep the IP limit strict because
+        # it protects the endpoint from shared-source abuse.
+        if email_limited and latest is not None and latest.expires_at <= now:
+            email_limited = False
 
         if email_limited or ip_limited or cooling_down:
             challenge_id = latest.pk if latest else uuid.uuid4()
@@ -125,6 +133,7 @@ class CSRFTokenView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+@method_decorator(csrf_protect, name="dispatch")
 class OTPVerifyView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -172,6 +181,8 @@ class OTPVerifyView(APIView):
 
 
 class LogoutView(APIView):
+    permission_classes = [IsAuthenticated]
+
     @extend_schema(request=None, responses={204: None})
     def post(self, request):
         actor = request.user
