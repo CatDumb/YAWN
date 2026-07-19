@@ -1,0 +1,64 @@
+name: Deploy staging
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: staging
+  cancel-in-progress: true
+
+jobs:
+  publish-images:
+    if: vars.DEPLOYMENTS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          tags: ghcr.io/${{ github.repository }}/backend:${{ github.sha }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: true
+          tags: ghcr.io/${{ github.repository }}/frontend:${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.STAGING_API_URL }}
+            NEXT_PUBLIC_SENTRY_DSN=${{ vars.STAGING_SENTRY_DSN }}
+            NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=${{ vars.SENTRY_TRACES_SAMPLE_RATE }}
+
+  deploy:
+    if: vars.DEPLOYMENTS_ENABLED == 'true'
+    needs: publish-images
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Trigger backend deployment
+        run: curl --fail --silent --show-error --request POST "$RENDER_DEPLOY_HOOK_URL"
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+      - name: Trigger frontend deployment
+        run: curl --fail --silent --show-error --request POST "$VERCEL_DEPLOY_HOOK_URL"
+        env:
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+      - name: Smoke test
+        run: |
+          curl --fail --retry 12 --retry-delay 10 --retry-all-errors "${STAGING_API_URL}/health/"
+          curl --fail --retry 12 --retry-delay 10 --retry-all-errors "${STAGING_FRONTEND_URL}/"
+        env:
+          STAGING_API_URL: ${{ vars.STAGING_API_URL }}
+          STAGING_FRONTEND_URL: ${{ vars.STAGING_FRONTEND_URL }}
