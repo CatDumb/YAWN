@@ -1,0 +1,157 @@
+openapi: 3.0.3
+info:
+  title: WIO Tracker API
+  version: 1.0.0
+  description: API for work-in-office tracking and approval workflows.
+paths:
+  /api/v1/auth/csrf/:
+    get:
+      operationId: v1_auth_csrf_retrieve
+      tags:
+      - v1
+      security:
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/v1/auth/logout/:
+    post:
+      operationId: v1_auth_logout_create
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/auth/otp/request/:
+    post:
+      operationId: v1_auth_otp_request_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OTPRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OTPRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OTPRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '202':
+          description: No response body
+  /api/v1/auth/otp/verify/:
+    post:
+      operationId: v1_auth_otp_verify_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OTPVerify'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OTPVerify'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OTPVerify'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+          description: ''
+  /api/v1/users/me/:
+    get:
+      operationId: v1_users_me_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+          description: ''
+components:
+  schemas:
+    CurrentUser:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        memberships:
+          type: array
+          items:
+            $ref: '#/components/schemas/Membership'
+          readOnly: true
+      required:
+      - email
+      - id
+      - memberships
+    Membership:
+      type: object
+      properties:
+        company_id:
+          type: integer
+        company:
+          type: string
+        role:
+          type: string
+      required:
+      - company
+      - company_id
+      - role
+    OTPRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required:
+      - email
+    OTPVerify:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        challenge_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          pattern: ^\d{6}$
+      required:
+      - challenge_id
+      - code
+      - email
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
