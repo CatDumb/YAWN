@@ -1,6 +1,7 @@
 import re
 from datetime import timedelta
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 from django.core import mail
@@ -10,6 +11,7 @@ from django.utils import timezone
 
 from apps.accounts.models import Company, CompanyMembership, EmailOTPChallenge, User
 from apps.accounts.permissions import IsHRAdmin, IsManagerOrHRAdmin
+from apps.accounts.views import _lock_rate_limits
 from apps.audit.models import AuditEvent
 
 
@@ -163,7 +165,7 @@ def test_email_rate_limit_remains_bounded_after_otp_expiry(client, active_user):
 
 
 @pytest.mark.django_db
-def test_live_otp_is_reused_instead_of_issuing_another_code(client, active_user):
+def test_otp_is_reused_during_resend_cooldown(client, active_user):
     first = client.post(
         "/api/v1/auth/otp/request/",
         {"email": active_user.email},
@@ -178,6 +180,25 @@ def test_live_otp_is_reused_instead_of_issuing_another_code(client, active_user)
     assert first.json()["challenge_id"] == second.json()["challenge_id"]
     assert EmailOTPChallenge.objects.filter(email=active_user.email).count() == 1
     assert len(mail.outbox) == 1
+
+
+@pytest.mark.django_db
+def test_otp_is_reissued_after_resend_cooldown(client, active_user, settings):
+    settings.WIO_OTP_RESEND_SECONDS = 0
+    first = client.post(
+        "/api/v1/auth/otp/request/",
+        {"email": active_user.email},
+        content_type="application/json",
+    )
+    second = client.post(
+        "/api/v1/auth/otp/request/",
+        {"email": active_user.email},
+        content_type="application/json",
+    )
+
+    assert first.json()["challenge_id"] != second.json()["challenge_id"]
+    assert EmailOTPChallenge.objects.filter(email=active_user.email).count() == 2
+    assert len(mail.outbox) == 2
 
 
 @pytest.mark.django_db
@@ -202,3 +223,17 @@ def test_company_role_permissions(active_user):
 def test_purge_expired_otps_rejects_negative_retention():
     with pytest.raises(CommandError, match="--hours must be zero or greater"):
         call_command("purge_expired_otps", hours=-1)
+
+
+def test_rate_locks_use_postgresql_transaction_advisory_locks(monkeypatch):
+    connection = MagicMock()
+    connection.vendor = "postgresql"
+    cursor = connection.cursor.return_value.__enter__.return_value
+    monkeypatch.setattr("apps.accounts.views.connection", connection)
+
+    _lock_rate_limits("employee@example.com", "request-fingerprint")
+
+    assert cursor.execute.call_count == 2
+    assert all(
+        call.args[0] == "SELECT pg_advisory_xact_lock(%s)" for call in cursor.execute.call_args_list
+    )

@@ -7,7 +7,7 @@ from django.conf import settings
 from django.contrib.auth import login, logout
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.mail import send_mail
-from django.db import transaction
+from django.db import connection, transaction
 from django.middleware.csrf import get_token
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
@@ -19,7 +19,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.models import EmailOTPChallenge, OTPRequestRateLimit, User
+from apps.accounts.models import EmailOTPChallenge, User
 from apps.accounts.serializers import (
     CurrentUserSerializer,
     OTPRequestSerializer,
@@ -63,9 +63,15 @@ def _rate_limit_keys(email, fingerprint):
 
 
 def _lock_rate_limits(email, fingerprint):
-    for key in _rate_limit_keys(email, fingerprint):
-        OTPRequestRateLimit.objects.get_or_create(key=key)
-        OTPRequestRateLimit.objects.select_for_update().get(key=key)
+    if connection.vendor != "postgresql":
+        return
+
+    with connection.cursor() as cursor:
+        for key in _rate_limit_keys(email, fingerprint):
+            lock_id = int(key[:16], 16)
+            if lock_id >= 2**63:
+                lock_id -= 2**64
+            cursor.execute("SELECT pg_advisory_xact_lock(%s)", [lock_id])
 
 
 class OTPRequestView(APIView):
@@ -82,6 +88,7 @@ class OTPRequestView(APIView):
         _lock_rate_limits(email, fingerprint)
         now = timezone.now()
         hour_ago = now - timedelta(hours=1)
+        resend_after = now - timedelta(seconds=settings.WIO_OTP_RESEND_SECONDS)
 
         latest = EmailOTPChallenge.objects.filter(email=email).order_by("-created_at").first()
         email_limited = (
@@ -95,11 +102,14 @@ class OTPRequestView(APIView):
             ).count()
             >= settings.WIO_OTP_IP_REQUESTS_PER_HOUR
         )
-        live_challenge = (
-            latest is not None and latest.consumed_at is None and latest.expires_at > now
+        cooling_down = (
+            latest is not None
+            and latest.consumed_at is None
+            and latest.expires_at > now
+            and latest.created_at >= resend_after
         )
 
-        if live_challenge or email_limited or ip_limited:
+        if cooling_down or email_limited or ip_limited:
             challenge_id = latest.pk if latest else uuid.uuid4()
             return Response(
                 {"detail": GENERIC_OTP_MESSAGE, "challenge_id": challenge_id},
