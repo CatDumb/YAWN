@@ -29,7 +29,7 @@ npm test
 npm run build
 ```
 
-Frontend uses credentialed requests to Django. Call `/api/v1/auth/csrf/` before authenticated unsafe requests; shared API helper sends CSRF token and cookies.
+Frontend uses credentialed requests to Django. Shared API helper gets a CSRF token from `/api/v1/auth/csrf/` before unsafe browser requests, then sends token and cookies. This supports separate frontend and API subdomains.
 
 Tailwind CSS 4 and daisyUI 5 are configured in `src/app/globals.css`. UI must use daisyUI components and semantic colors before custom CSS.
 

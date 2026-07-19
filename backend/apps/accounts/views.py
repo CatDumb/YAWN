@@ -8,12 +8,13 @@ from django.contrib.auth import login, logout
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.mail import send_mail
 from django.db import transaction
+from django.middleware.csrf import get_token
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
-from drf_spectacular.utils import extend_schema
-from rest_framework import status
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -128,9 +129,16 @@ class CSRFTokenView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
-    @extend_schema(responses={204: None})
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="CSRFTokenResponse",
+                fields={"csrfToken": serializers.CharField()},
+            )
+        }
+    )
     def get(self, request):
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response({"csrfToken": get_token(request)})
 
 
 @method_decorator(csrf_protect, name="dispatch")

@@ -82,8 +82,9 @@ def test_protected_endpoint_requires_authentication(client):
 def test_csrf_endpoint_sets_cookie(client):
     response = client.get("/api/v1/auth/csrf/")
 
-    assert response.status_code == 204
+    assert response.status_code == 200
     assert "csrftoken" in response.cookies
+    assert response.json()["csrfToken"]
 
 
 @pytest.mark.django_db
@@ -107,7 +108,7 @@ def test_otp_verify_requires_csrf_proof(active_user):
         "/api/v1/auth/otp/verify/",
         payload,
         content_type="application/json",
-        HTTP_X_CSRFTOKEN=csrf_response.cookies["csrftoken"].value,
+        HTTP_X_CSRFTOKEN=csrf_response.json()["csrfToken"],
     )
 
     assert rejected.status_code == 403

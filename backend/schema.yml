@@ -12,8 +12,12 @@ paths:
       security:
       - {}
       responses:
-        '204':
-          description: No response body
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CSRFTokenResponse'
+          description: ''
   /api/v1/auth/logout/:
     post:
       operationId: v1_auth_logout_create
@@ -88,6 +92,13 @@ paths:
           description: ''
 components:
   schemas:
+    CSRFTokenResponse:
+      type: object
+      properties:
+        csrfToken:
+          type: string
+      required:
+      - csrfToken
     CurrentUser:
       type: object
       properties:
