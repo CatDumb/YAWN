@@ -162,3 +162,11 @@ class EmailOTPChallenge(models.Model):
 
     def __str__(self):
         return f"OTP challenge {self.pk}"
+
+
+class OTPRequestRateLimit(models.Model):
+    key = models.CharField(max_length=64, primary_key=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"OTP request rate limit {self.pk}"

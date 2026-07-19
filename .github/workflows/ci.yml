@@ -25,12 +25,13 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          git rev-list --reverse "$BASE_SHA..$HEAD_SHA" | while read -r commit; do
+          set -euo pipefail
+          while read -r commit; do
             message_file=$(mktemp)
             git log -1 --format=%B "$commit" > "$message_file"
             sh .githooks/commit-msg "$message_file"
             rm "$message_file"
-          done
+          done < <(git rev-list --reverse "$BASE_SHA..$HEAD_SHA")
 
   backend:
     runs-on: ubuntu-latest

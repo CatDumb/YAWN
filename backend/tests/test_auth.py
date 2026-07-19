@@ -139,7 +139,7 @@ def test_revoked_user_can_log_out(client, active_user):
 
 
 @pytest.mark.django_db
-def test_expired_latest_otp_does_not_hold_email_rate_limit(client, active_user):
+def test_email_rate_limit_remains_bounded_after_otp_expiry(client, active_user):
     now = timezone.now()
     for _ in range(5):
         challenge = EmailOTPChallenge.objects.create(
@@ -158,7 +158,25 @@ def test_expired_latest_otp_does_not_hold_email_rate_limit(client, active_user):
     )
 
     assert response.status_code == 202
-    assert EmailOTPChallenge.objects.filter(email=active_user.email).count() == 6
+    assert EmailOTPChallenge.objects.filter(email=active_user.email).count() == 5
+    assert len(mail.outbox) == 0
+
+
+@pytest.mark.django_db
+def test_live_otp_is_reused_instead_of_issuing_another_code(client, active_user):
+    first = client.post(
+        "/api/v1/auth/otp/request/",
+        {"email": active_user.email},
+        content_type="application/json",
+    )
+    second = client.post(
+        "/api/v1/auth/otp/request/",
+        {"email": active_user.email},
+        content_type="application/json",
+    )
+
+    assert first.json()["challenge_id"] == second.json()["challenge_id"]
+    assert EmailOTPChallenge.objects.filter(email=active_user.email).count() == 1
     assert len(mail.outbox) == 1
 
 

@@ -85,7 +85,7 @@ describe("apiFetch", () => {
       )
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
 
-    await apiFetch("/auth/otp/verify/", {
+    await apiFetch("/auth/otp/request/", {
       body: JSON.stringify({ code: "123456" }),
       method: "POST",
     });
@@ -95,5 +95,37 @@ describe("apiFetch", () => {
     );
     const [, init] = fetchMock.mock.calls[1];
     expect(new Headers(init?.headers).get("X-CSRFToken")).toBe("api-token");
+  });
+
+  it("refreshes API CSRF token after successful OTP verification", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ csrfToken: "before-login" }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ csrfToken: "after-login" }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await apiFetch("/api/v1/auth/otp/verify/", {
+      body: JSON.stringify({ code: "123456" }),
+      method: "POST",
+    });
+    await apiFetch("/logs/", {
+      body: JSON.stringify({ status: "draft" }),
+      method: "POST",
+    });
+
+    expect(fetchMock.mock.calls[2][0]).toBe(
+      "http://localhost:8000/api/v1/auth/csrf/",
+    );
+    const [, init] = fetchMock.mock.calls[3];
+    expect(new Headers(init?.headers).get("X-CSRFToken")).toBe("after-login");
   });
 });

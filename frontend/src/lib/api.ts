@@ -42,6 +42,10 @@ async function getCsrfToken(): Promise<string | undefined> {
   return csrfTokenRequest;
 }
 
+function isOtpVerifyPath(path: string): boolean {
+  return path.replace(/\/+$/, "").endsWith("/auth/otp/verify");
+}
+
 export async function apiFetch(
   path: string,
   init: RequestInit = {},
@@ -60,9 +64,17 @@ export async function apiFetch(
     if (csrfToken) headers.set("X-CSRFToken", csrfToken);
   }
 
-  return fetch(`${API_URL}${path}`, {
+  const response = await fetch(`${API_URL}${path}`, {
     ...init,
     headers,
     credentials: "include",
   });
+
+  if (response.ok && isOtpVerifyPath(path)) {
+    csrfToken = undefined;
+    csrfTokenRequest = undefined;
+    void getCsrfToken().catch(() => undefined);
+  }
+
+  return response;
 }

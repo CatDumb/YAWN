@@ -19,7 +19,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.models import EmailOTPChallenge, User
+from apps.accounts.models import EmailOTPChallenge, OTPRequestRateLimit, User
 from apps.accounts.serializers import (
     CurrentUserSerializer,
     OTPRequestSerializer,
@@ -53,19 +53,35 @@ def _eligible_user(email):
     )
 
 
+def _rate_limit_keys(email, fingerprint):
+    return sorted(
+        {
+            salted_hmac("wio.otp.request.email", email).hexdigest(),
+            salted_hmac("wio.otp.request.fingerprint", fingerprint).hexdigest(),
+        }
+    )
+
+
+def _lock_rate_limits(email, fingerprint):
+    for key in _rate_limit_keys(email, fingerprint):
+        OTPRequestRateLimit.objects.get_or_create(key=key)
+        OTPRequestRateLimit.objects.select_for_update().get(key=key)
+
+
 class OTPRequestView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
     @extend_schema(request=OTPRequestSerializer, responses={202: None})
+    @transaction.atomic
     def post(self, request):
         serializer = OTPRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data["email"]
         fingerprint = _client_fingerprint(request)
+        _lock_rate_limits(email, fingerprint)
         now = timezone.now()
         hour_ago = now - timedelta(hours=1)
-        resend_after = now - timedelta(seconds=settings.WIO_OTP_RESEND_SECONDS)
 
         latest = EmailOTPChallenge.objects.filter(email=email).order_by("-created_at").first()
         email_limited = (
@@ -79,17 +95,11 @@ class OTPRequestView(APIView):
             ).count()
             >= settings.WIO_OTP_IP_REQUESTS_PER_HOUR
         )
-        cooling_down = (
-            latest is not None and latest.expires_at > now and latest.created_at >= resend_after
+        live_challenge = (
+            latest is not None and latest.consumed_at is None and latest.expires_at > now
         )
 
-        # Do not strand a user behind the hourly email limit once their most
-        # recent code can no longer be used. Keep the IP limit strict because
-        # it protects the endpoint from shared-source abuse.
-        if email_limited and latest is not None and latest.expires_at <= now:
-            email_limited = False
-
-        if email_limited or ip_limited or cooling_down:
+        if live_challenge or email_limited or ip_limited:
             challenge_id = latest.pk if latest else uuid.uuid4()
             return Response(
                 {"detail": GENERIC_OTP_MESSAGE, "challenge_id": challenge_id},
