@@ -1,6 +1,6 @@
 # Tests
 
-Cross-service and end-to-end test coverage for WIO Tracker.
+Backend and frontend test guidance for WIO Tracker.
 
 Tools include pytest-django for backend tests and Vitest for frontend utilities.
 

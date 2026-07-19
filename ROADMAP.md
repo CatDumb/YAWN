@@ -47,32 +47,39 @@ MVP calculation rules:
 - Configure PostgreSQL, Django migrations, environments, CI, and deployment.
 - Add Dockerfile for frontend and backend build consistency.
 - Add Docker Compose for local Django, PostgreSQL, and optional Redis services.
-- Add email OTP login, company membership, roles, and permission checks.
 - Add GitHub Actions CI checks for backend, frontend, Docker builds, and security scanning.
 - Add staging and production deployment workflows with protected production approval.
 - Add health endpoint, error monitoring, structured logs, and deployment alerts.
 
 
-### Phase 2: Daily logs and ratio
+### Phase 2: Identity and access
+
+- Add administrator-provisioned user registration and active company memberships.
+- Add employee, line manager, and HR/admin role assignment.
+- Add role and company permission checks.
+- Add email OTP request, verification, session, logout, CSRF, and rate-limit behavior.
+
+
+### Phase 3: Daily logs and ratio
 
 - Add project, employee base location, and ratio-rule administration.
 - Add draft, submit, edit, and duplicate-date protection.
 - Add monthly and custom-range ratio dashboards.
 
-### Phase 3: Manager workflow
+### Phase 4: Manager workflow
 
 - Add manager-to-employee assignments.
 - Add pending approval queue.
 - Add approve/reject actions and rejection reasons.
 - Freeze approved-log changes; preserve audit records.
 
-### Phase 4: Endorsements
+### Phase 5: Endorsements
 
 - Allow employees to tag colleagues.
 - Allow tagged colleagues to endorse or withdraw endorsement.
 - Display endorsement history on logs.
 
-### Phase 5: Evidence and seat map
+### Phase 6: Evidence and seat map
 
 - Add private image upload.
 - Add explicit browser webcam capture permission flow.
@@ -80,7 +87,7 @@ MVP calculation rules:
 - Add daily seat selection.
 - Keep integration boundary for future room-booking or external map systems.
 
-### Phase 6: Pilot and hardening
+### Phase 7: Pilot and hardening
 
 - Pilot with one team/company.
 - Validate ratio, approval, evidence privacy, and seat workflows.
@@ -143,4 +150,4 @@ MVP calculation rules:
 - Evidence content is retained for 90 days after final approval or rejection, then deleted unless legal hold applies. Audit metadata remains.
 - OTP expires after 10 minutes, allows five verification attempts, has a 60-second resend cooldown, and limits requests per email and request fingerprint.
 - One employee may hold one seat per date, and one seat may belong to only one employee per date. Enforce both rules with database constraints.
-- Manager assignments are modeled during foundation; assignment-scoped approval behavior arrives in Phase 3.
+- Manager assignments are modeled during Phase 2; assignment-scoped approval behavior arrives in Phase 4.
