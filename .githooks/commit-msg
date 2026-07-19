@@ -1,0 +1,22 @@
+#!/bin/sh
+
+message_file=$1
+header=$(sed -n '1p' "$message_file")
+pattern='^(feat|fix|build|chore|ci|docs|perf|refactor|revert|style|test)(\([a-z0-9][a-z0-9._/-]*\))?!?: .+$'
+
+if printf '%s\n' "$header" | grep -Eq "$pattern"; then
+  exit 0
+fi
+
+cat >&2 <<'EOF'
+Invalid commit message.
+
+Use Conventional Commits 1.0.0:
+  type(optional-scope): imperative summary
+
+Allowed types: feat, fix, build, chore, ci, docs, perf, refactor, revert,
+style, test. Add ! before : for a breaking change.
+
+Example: feat(auth): add OTP verification
+EOF
+exit 1
