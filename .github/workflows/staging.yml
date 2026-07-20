@@ -33,6 +33,8 @@ jobs:
           context: backend
           push: true
           tags: ${{ env.IMAGE_REPOSITORY }}/backend:${{ github.sha }}
+          build-args: |
+            DEPLOYMENT_VERSION=staging-${{ github.sha }}
       - uses: docker/build-push-action@v6
         with:
           context: frontend
@@ -40,6 +42,7 @@ jobs:
           tags: ${{ env.IMAGE_REPOSITORY }}/frontend:${{ github.sha }}
           build-args: |
             NEXT_PUBLIC_API_URL=${{ vars.STAGING_API_URL }}
+            NEXT_PUBLIC_APP_VERSION=staging-${{ github.sha }}
             NEXT_PUBLIC_SENTRY_DSN=${{ vars.STAGING_SENTRY_DSN }}
             NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=${{ vars.SENTRY_TRACES_SAMPLE_RATE }}
 

@@ -4,6 +4,21 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release version, such as v0.1.0
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Published release version, such as v0.1.0
+        required: true
+        type: string
+      release_sha:
+        description: Commit SHA for published release
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -14,12 +29,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  release-metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.metadata.outputs.release_tag }}
+      release_sha: ${{ steps.metadata.outputs.release_sha }}
+    steps:
+      - id: metadata
+        env:
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_RELEASE_SHA: ${{ inputs.release_sha }}
+          EVENT_RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          release_tag="${INPUT_RELEASE_TAG:-${EVENT_RELEASE_TAG:-manual-${GITHUB_SHA::7}}}"
+          release_sha="${INPUT_RELEASE_SHA:-$GITHUB_SHA}"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "release_sha=$release_sha" >> "$GITHUB_OUTPUT"
+
   publish-images:
     if: vars.DEPLOYMENTS_ENABLED == 'true'
+    needs: release-metadata
     runs-on: ubuntu-latest
     environment: production
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-metadata.outputs.release_sha }}
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -32,20 +67,27 @@ jobs:
         with:
           context: backend
           push: true
-          tags: ${{ env.IMAGE_REPOSITORY }}/backend:${{ github.sha }}
+          tags: |
+            ${{ env.IMAGE_REPOSITORY }}/backend:${{ needs.release-metadata.outputs.release_tag }}
+            ${{ env.IMAGE_REPOSITORY }}/backend:${{ needs.release-metadata.outputs.release_sha }}
+          build-args: |
+            DEPLOYMENT_VERSION=${{ needs.release-metadata.outputs.release_tag }}
       - uses: docker/build-push-action@v6
         with:
           context: frontend
           push: true
-          tags: ${{ env.IMAGE_REPOSITORY }}/frontend:${{ github.sha }}
+          tags: |
+            ${{ env.IMAGE_REPOSITORY }}/frontend:${{ needs.release-metadata.outputs.release_tag }}
+            ${{ env.IMAGE_REPOSITORY }}/frontend:${{ needs.release-metadata.outputs.release_sha }}
           build-args: |
             NEXT_PUBLIC_API_URL=${{ vars.PRODUCTION_API_URL }}
+            NEXT_PUBLIC_APP_VERSION=${{ needs.release-metadata.outputs.release_tag }}
             NEXT_PUBLIC_SENTRY_DSN=${{ vars.PRODUCTION_SENTRY_DSN }}
             NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=${{ vars.SENTRY_TRACES_SAMPLE_RATE }}
 
   deploy:
     if: vars.DEPLOYMENTS_ENABLED == 'true'
-    needs: publish-images
+    needs: [release-metadata, publish-images]
     runs-on: ubuntu-latest
     environment: production
     steps:

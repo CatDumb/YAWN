@@ -21,3 +21,14 @@ git config core.hooksPath .githooks
 
 The versioned `commit-msg` hook rejects nonconforming messages locally. Pull
 request CI validates every commit in the branch as well.
+
+## Releases
+
+Release Please creates a release pull request from commits merged to `main`.
+Merging it updates `version.txt` and `CHANGELOG.md`, then publishes a `vX.Y.Z`
+GitHub Release. `feat` commits produce minor releases, `fix` commits produce
+patch releases, and breaking commits produce minor releases while WIO Tracker
+remains below `1.0.0`.
+
+Repository administrators must enable **Allow GitHub Actions to create and
+approve pull requests** in repository Actions settings.

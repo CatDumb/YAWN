@@ -4,6 +4,7 @@ import { withSentryConfig } from "@sentry/nextjs";
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  generateBuildId: () => process.env.NEXT_PUBLIC_APP_VERSION ?? "development",
 };
 
 const hasSentryBuildConfig = Boolean(

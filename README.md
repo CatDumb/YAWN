@@ -7,7 +7,7 @@ Single-company web app for tracking work-in-office activity, approvals, endorsem
 Phase 1 foundation covers frontend/backend scaffolding, operational baseline, local containers, tests, and CI/CD definitions. Phase 2 adds identity and access; daily work-log features begin in Phase 3.
 
 See [ROADMAP.md](ROADMAP.md) for delivery phases and [TECHSTACK.md](TECHSTACK.md) for architecture and technology decisions.
-See [CONTRIBUTING.md](CONTRIBUTING.md) for required commit-message format.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for required commit-message format and [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## Layout
 

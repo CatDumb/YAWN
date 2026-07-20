@@ -1,0 +1,31 @@
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  release_please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      release_tag: ${{ steps.release.outputs.tag_name }}
+      release_sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v5
+
+  deploy-production:
+    needs: release_please
+    if: needs.release_please.outputs.release_created == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/production.yml
+    with:
+      release_tag: ${{ needs.release_please.outputs.release_tag }}
+      release_sha: ${{ needs.release_please.outputs.release_sha }}
+    secrets: inherit

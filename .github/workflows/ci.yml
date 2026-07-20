@@ -13,6 +13,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release metadata
+        run: |
+          node --input-type=module <<'EOF'
+          import { readFileSync } from "node:fs";
+
+          const version = readFileSync("version.txt", "utf8").trim();
+          const manifest = JSON.parse(readFileSync(".release-please-manifest.json", "utf8"));
+          const config = JSON.parse(readFileSync("release-please-config.json", "utf8"));
+
+          if (!/^\d+\.\d+\.\d+$/.test(version)) {
+            throw new Error(`Invalid SemVer version: ${version}`);
+          }
+          if (manifest["."] !== version) {
+            throw new Error("version.txt and Release Please manifest differ.");
+          }
+          if (config.packages?.["."]?.["release-type"] !== "simple") {
+            throw new Error("Root package must use Release Please simple strategy.");
+          }
+          EOF
+
   commit-message:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

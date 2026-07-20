@@ -64,7 +64,8 @@ MVP calculation rules:
 
 - Add project, employee base location, and ratio-rule administration.
 - Add draft, submit, edit, and duplicate-date protection.
-- Add monthly and custom-range ratio dashboards.
+- Add personal monthly dashboard and custom-range ratio reports.
+- Add personal activity heatmap with calendar days shaded by activity; distinguish submitted logs from approved WIO days.
 
 ### Phase 4: Manager workflow
 
@@ -91,7 +92,13 @@ MVP calculation rules:
 
 - Pilot with one team/company.
 - Validate ratio, approval, evidence privacy, and seat workflows.
-- Add reminders, exports, analytics, and external integrations only after pilot feedback.
+- After pilot feedback, add line and company dashboards with role- and scope-based metrics.
+- Add manager and admin report exports with line- and company-scoped access; define export formats, permissions, and report contents.
+- Add reminders and external integrations only after pilot feedback.
+
+### Phase 8: Future engagement
+
+- Add personal achievement badges only after pilot feedback confirms activity metrics are useful, fair, and resistant to gaming.
 
 ## Deployment plan
 

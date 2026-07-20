@@ -9,8 +9,11 @@ RUN python -m pip install --prefix=/install --require-hashes -r requirements.txt
 
 FROM python:3.12-slim AS runtime
 
+ARG DEPLOYMENT_VERSION=development
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    DEPLOYMENT_VERSION=$DEPLOYMENT_VERSION \
     PATH=/home/wio/.local/bin:$PATH
 
 RUN addgroup --system wio && adduser --system --ingroup wio --home /home/wio wio
