@@ -95,7 +95,7 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run pytest --cov-report=xml:coverage.xml --cov-report=html:htmlcov
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ always() && hashFiles('backend/coverage.xml') != '' }}
         with:
           name: backend-coverage
           path: |
@@ -126,7 +126,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:coverage
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ always() && hashFiles('frontend/coverage/**') != '' }}
         with:
           name: frontend-coverage
           path: |

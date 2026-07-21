@@ -64,9 +64,7 @@ def _validate_production_email_and_app_url():
     try:
         URLValidator(schemes=["https"])(WIO_APP_URL)
     except ValidationError as exc:
-        raise ImproperlyConfigured(
-            "WIO_APP_URL must be an HTTPS frontend homepage URL."
-        ) from exc
+        raise ImproperlyConfigured("WIO_APP_URL must be an HTTPS frontend homepage URL.") from exc
 
     parsed_url = urlparse(WIO_APP_URL)
     if (
