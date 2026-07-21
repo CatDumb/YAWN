@@ -1,5 +1,5 @@
 {
-  "name": "wio-tracker-frontend",
+  "name": "yawn-frontend",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -50,5 +50,10 @@
     "sharp@0.34.5": true,
     "unrs-resolver@1.12.2": true,
     "@sentry/cli@2.58.6": true
+  },
+  "optionalDependencies": {
+    "@rolldown/binding-win32-x64-msvc": "1.1.5",
+    "@tailwindcss/oxide-win32-x64-msvc": "4.3.3",
+    "lightningcss-win32-x64-msvc": "^1.32.0"
   }
 }
