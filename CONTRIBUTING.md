@@ -27,7 +27,7 @@ request CI validates every commit in the branch as well.
 Release Please creates a release pull request from commits merged to `main`.
 Merging it updates `version.txt` and `CHANGELOG.md`, then publishes a `vX.Y.Z`
 GitHub Release. `feat` commits produce minor releases, `fix` commits produce
-patch releases, and breaking commits produce minor releases while WIO Tracker
+patch releases, and breaking commits produce minor releases while YAWN
 remains below `1.0.0`.
 
 Repository administrators must enable **Allow GitHub Actions to create and

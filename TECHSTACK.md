@@ -1,4 +1,4 @@
-# WIO Tracker Tech Stack
+# YAWN Tech Stack
 
 ## Frontend
 
