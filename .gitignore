@@ -55,3 +55,5 @@ schema.generated.yml
 # Frontend test artifacts
 frontend/coverage/
 frontend/test-results/
+
+.scripts
