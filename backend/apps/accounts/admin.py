@@ -100,7 +100,8 @@ class YawnUserAdmin(UserAdmin):
     @admin.action(description="Disable selected users")
     @transaction.atomic
     def disable_selected_users(self, request, queryset):
-        users = queryset.select_for_update().filter(is_active=True)
+        user_ids = list(queryset.filter(is_active=True).values_list("pk", flat=True))
+        users = User.objects.select_for_update().filter(pk__in=user_ids, is_active=True)
         for user in users:
             user.is_active = False
             user.save(update_fields=["is_active"])
@@ -114,7 +115,8 @@ class YawnUserAdmin(UserAdmin):
     @admin.action(description="Enable selected users")
     @transaction.atomic
     def enable_selected_users(self, request, queryset):
-        users = queryset.select_for_update().filter(is_active=False)
+        user_ids = list(queryset.filter(is_active=False).values_list("pk", flat=True))
+        users = User.objects.select_for_update().filter(pk__in=user_ids, is_active=False)
         for user in users:
             user.is_active = True
             user.save(update_fields=["is_active"])
@@ -240,7 +242,7 @@ class CompanyMembershipAdmin(admin.ModelAdmin):
             return False
         if request.user.is_superuser or obj is None:
             return True
-        return _managed_company_ids(request.user).filter(pk=obj.company_id).exists()
+        return _managed_company_ids(request.user).filter(company_id=obj.company_id).exists()
 
     def has_add_permission(self, request):
         return request.user.is_active and request.user.is_superuser

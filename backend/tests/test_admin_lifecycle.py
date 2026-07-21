@@ -305,6 +305,10 @@ def test_approval_does_not_reenable_disabled_user(client, company, superuser):
 
 @pytest.mark.django_db
 def test_hr_admin_can_reactivate_membership_only_in_managed_company(client, company):
+    CompanyMembership.objects.create(
+        user=User.objects.create_user(email="existing@example.com"),
+        company=company,
+    )
     hr_admin = User.objects.create_user(email="hr@example.com", is_staff=True)
     CompanyMembership.objects.create(
         user=hr_admin,
