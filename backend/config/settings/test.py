@@ -10,9 +10,6 @@ MIDDLEWARE = [
     for middleware in MIDDLEWARE  # noqa: F405
     if middleware != "whitenoise.middleware.WhiteNoiseMiddleware"
 ]
-STORAGES["staticfiles"] = {  # noqa: F405
-    "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
-}
 SPECTACULAR_SETTINGS["SERVE_PERMISSIONS"] = [  # noqa: F405
     "rest_framework.permissions.AllowAny"
 ]

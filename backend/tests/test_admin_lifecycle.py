@@ -34,12 +34,7 @@ def run_admin_action(client, url, action, object_id):
 def test_only_superusers_or_active_staff_hr_admins_can_view_access_requests(
     client,
     company,
-    settings,
 ):
-    settings.STORAGES = {
-        **settings.STORAGES,
-        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
-    }
     access_request = AccessRequest.objects.create(
         company=company,
         email="requester@example.com",
