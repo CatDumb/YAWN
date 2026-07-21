@@ -1,6 +1,6 @@
 # Tests
 
-Backend and frontend test guidance for WIO Tracker.
+Backend and frontend test guidance for YAWN.
 
 Tools include pytest-django for backend tests and Vitest for frontend utilities.
 

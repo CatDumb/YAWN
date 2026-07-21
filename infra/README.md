@@ -1,6 +1,6 @@
 # Infrastructure
 
-Infrastructure and deployment support for WIO Tracker.
+Infrastructure and deployment support for YAWN.
 
 ## Responsibilities
 
@@ -13,18 +13,38 @@ Persistent production data will remain in managed PostgreSQL and private S3-comp
 
 ## Local Compose
 
+Run from the repository root:
+
 ```powershell
-Copy-Item .env.example .env
-docker compose up --build
+powershell -ExecutionPolicy Bypass -File .\scripts\start-app.ps1
 ```
 
 Optional Redis:
 
 ```powershell
-docker compose --profile redis up --build
+powershell -ExecutionPolicy Bypass -File .\scripts\start-app.ps1 -WithRedis
 ```
 
 ## Deployment setup
+
+Configure backend deployment secrets with Gmail SMTP values from YAWN's dedicated Gmail account:
+
+- Enable Google 2-Step Verification and create an App Password. Never commit App Password.
+- `DJANGO_EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend`
+- `DJANGO_EMAIL_HOST=smtp.gmail.com`, `DJANGO_EMAIL_PORT=587`, and `DJANGO_EMAIL_USE_TLS=true`
+- `DJANGO_EMAIL_HOST_USER`, `DJANGO_EMAIL_HOST_PASSWORD`, and matching `DJANGO_DEFAULT_FROM_EMAIL`
+- HTTPS frontend homepage `WIO_APP_URL`, for example `https://app.example.com`
+
+Production fails startup if SMTP host, port, credentials, TLS, sender, or `WIO_APP_URL` is absent
+or invalid. Compose reads root ignored `.env`, using console mail unless its SMTP values replace the
+defaults in `.env.example`; `backend/.env` affects only direct Django processes. Recreate `backend`
+and `cleanup` after changing Compose mail values. Deploy the Compose stack with production settings
+and host secrets. Its `cleanup` service waits for database/backend health, then runs
+`purge_expired_otps --hours 24` and `clearsessions` every 24 hours.
+
+Release test: submit public request, approve in Admin, receive approval email, open homepage,
+request Gmail OTP, verify frontend session, wait 30 seconds, resend, then confirm logout and login
+behavior.
 
 GitHub variable `DEPLOYMENTS_ENABLED=true` enables deploy jobs. Configure staging and production GitHub Environments with:
 

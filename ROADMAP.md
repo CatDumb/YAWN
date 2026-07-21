@@ -1,4 +1,4 @@
-# WIO Tracker Roadmap
+# YAWN Roadmap
 
 ## Product goal
 
@@ -99,6 +99,8 @@ MVP calculation rules:
 ### Phase 8: Future engagement
 
 - Add personal achievement badges only after pilot feedback confirms activity metrics are useful, fair, and resistant to gaming.
+- Add i18n and a user-selectable theme switch; keep light as default while respecting the operating system's dark
+  preference until then.
 
 ## Deployment plan
 
