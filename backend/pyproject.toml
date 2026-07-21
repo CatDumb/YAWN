@@ -1,7 +1,7 @@
 [project]
-name = "wio-tracker-backend"
+name = "yawn-backend"
 version = "0.1.0"
-description = "Django REST API for WIO Tracker"
+description = "Django REST API for YAWN"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "Django>=5.2,<5.3",

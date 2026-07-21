@@ -115,7 +115,7 @@ REST_FRAMEWORK = {
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "WIO Tracker API",
+    "TITLE": "YAWN API",
     "DESCRIPTION": "API for work-in-office tracking and approval workflows.",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
@@ -141,10 +141,22 @@ DEFAULT_FROM_EMAIL = env("DJANGO_DEFAULT_FROM_EMAIL", default="no-reply@example.
 
 WIO_OTP_TTL_SECONDS = env.int("WIO_OTP_TTL_SECONDS", default=600)
 WIO_OTP_MAX_ATTEMPTS = env.int("WIO_OTP_MAX_ATTEMPTS", default=5)
-WIO_OTP_RESEND_SECONDS = env.int("WIO_OTP_RESEND_SECONDS", default=60)
+WIO_OTP_RESEND_SECONDS = env.int("WIO_OTP_RESEND_SECONDS", default=30)
 WIO_OTP_REQUESTS_PER_HOUR = env.int("WIO_OTP_REQUESTS_PER_HOUR", default=5)
-WIO_OTP_IP_REQUESTS_PER_HOUR = env.int("WIO_OTP_IP_REQUESTS_PER_HOUR", default=20)
+WIO_OTP_IP_REQUESTS_PER_HOUR = env.int("WIO_OTP_IP_REQUESTS_PER_HOUR", default=100)
+WIO_APP_URL = env("WIO_APP_URL", default="http://localhost:3000")
+WIO_SIGNUP_COMPANY_SLUG = env("WIO_SIGNUP_COMPANY_SLUG", default="")
+WIO_SIGNUP_REQUESTS_PER_HOUR = env.int("WIO_SIGNUP_REQUESTS_PER_HOUR", default=5)
+WIO_SIGNUP_FINGERPRINT_REQUESTS_PER_HOUR = env.int(
+    "WIO_SIGNUP_FINGERPRINT_REQUESTS_PER_HOUR",
+    default=20,
+)
+WIO_ALLOW_INSECURE_DEV_SEED = env.bool("WIO_ALLOW_INSECURE_DEV_SEED", default=False)
 WIO_TRUST_PROXY_HEADERS = env.bool("WIO_TRUST_PROXY_HEADERS", default=False)
+
+# Sessions last a fixed 14 days. Activity does not extend this window.
+SESSION_COOKIE_AGE = 14 * 24 * 60 * 60
+SESSION_SAVE_EVERY_REQUEST = False
 
 LOGGING = {
     "version": 1,

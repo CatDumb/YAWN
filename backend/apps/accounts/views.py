@@ -6,7 +6,6 @@ from datetime import timedelta
 from django.conf import settings
 from django.contrib.auth import login, logout
 from django.contrib.auth.hashers import check_password, make_password
-from django.core.mail import send_mail
 from django.db import connection, transaction
 from django.middleware.csrf import get_token
 from django.utils import timezone
@@ -19,16 +18,21 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.models import EmailOTPChallenge, User
+from apps.accounts.models import AccessRequest, Company, EmailOTPChallenge, User
 from apps.accounts.serializers import (
+    AccessRequestResponseSerializer,
+    AccessRequestSerializer,
     CurrentUserSerializer,
+    OTPRequestResponseSerializer,
     OTPRequestSerializer,
     OTPVerifySerializer,
 )
+from apps.accounts.services import schedule_otp_email_delivery
 from apps.audit.models import AuditEvent
 
 logger = logging.getLogger("wio.auth")
 GENERIC_OTP_MESSAGE = "If the account is eligible, a sign-in code has been sent."
+GENERIC_SIGNUP_MESSAGE = "If access can be requested, it is pending review."
 
 
 def _client_fingerprint(request):
@@ -38,6 +42,15 @@ def _client_fingerprint(request):
     if settings.WIO_TRUST_PROXY_HEADERS and forwarded_for:
         address = forwarded_for.split(",", 1)[0].strip() or remote_address
     return salted_hmac("wio.otp.request", address).hexdigest()
+
+
+def _signup_fingerprint(request):
+    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    remote_address = request.META.get("REMOTE_ADDR", "unknown")
+    address = remote_address
+    if settings.WIO_TRUST_PROXY_HEADERS and forwarded_for:
+        address = forwarded_for.split(",", 1)[0].strip() or remote_address
+    return salted_hmac("wio.signup.request", address, algorithm="sha256").hexdigest()
 
 
 def _eligible_user(email):
@@ -74,11 +87,72 @@ def _lock_rate_limits(email, fingerprint):
             cursor.execute("SELECT pg_advisory_xact_lock(%s)", [lock_id])
 
 
+class AccessRequestView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        request=AccessRequestSerializer,
+        responses={202: AccessRequestResponseSerializer},
+    )
+    @transaction.atomic
+    def post(self, request):
+        serializer = AccessRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        company = Company.objects.filter(
+            slug=settings.WIO_SIGNUP_COMPANY_SLUG,
+            is_active=True,
+        ).first()
+        if company is None:
+            return Response(
+                {"detail": GENERIC_SIGNUP_MESSAGE},
+                status=status.HTTP_202_ACCEPTED,
+            )
+
+        email = data["email"]
+        fingerprint = _signup_fingerprint(request)
+        _lock_rate_limits(email, fingerprint)
+        hour_ago = timezone.now() - timedelta(hours=1)
+        email_limited = (
+            AccessRequest.objects.filter(
+                company=company,
+                email=email,
+                created_at__gte=hour_ago,
+            ).count()
+            >= settings.WIO_SIGNUP_REQUESTS_PER_HOUR
+        )
+        fingerprint_limited = (
+            AccessRequest.objects.filter(
+                company=company,
+                request_fingerprint=fingerprint,
+                created_at__gte=hour_ago,
+            ).count()
+            >= settings.WIO_SIGNUP_FINGERPRINT_REQUESTS_PER_HOUR
+        )
+        if not email_limited and not fingerprint_limited:
+            AccessRequest.objects.get_or_create(
+                company=company,
+                email=email,
+                status=AccessRequest.Status.PENDING,
+                defaults={
+                    "first_name": data["first_name"],
+                    "last_name": data["last_name"],
+                    "request_fingerprint": fingerprint,
+                },
+            )
+
+        return Response(
+            {"detail": GENERIC_SIGNUP_MESSAGE},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
 class OTPRequestView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
-    @extend_schema(request=OTPRequestSerializer, responses={202: None})
+    @extend_schema(request=OTPRequestSerializer, responses={202: OTPRequestResponseSerializer})
     @transaction.atomic
     def post(self, request):
         serializer = OTPRequestSerializer(data=request.data)
@@ -127,16 +201,7 @@ class OTPRequestView(APIView):
         )
 
         if user:
-            expiry_minutes = max(1, settings.WIO_OTP_TTL_SECONDS // 60)
-            sent = send_mail(
-                subject="Your WIO Tracker sign-in code",
-                message=(f"Your sign-in code is {code}. It expires in {expiry_minutes} minutes."),
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                fail_silently=True,
-            )
-            if sent != 1:
-                logger.error("otp_email_delivery_failed")
+            schedule_otp_email_delivery(recipient=user.email, code=code)
 
         return Response(
             {"detail": GENERIC_OTP_MESSAGE, "challenge_id": challenge.pk},
@@ -191,7 +256,13 @@ class OTPVerifyView(APIView):
             )
 
         challenge.attempt_count += 1
-        if not check_password(data["code"], challenge.code_hash) or challenge.user is None:
+        eligible_user = _eligible_user(challenge.email)
+        if (
+            not check_password(data["code"], challenge.code_hash)
+            or challenge.user is None
+            or eligible_user is None
+            or eligible_user.pk != challenge.user_id
+        ):
             if challenge.attempt_count >= settings.WIO_OTP_MAX_ATTEMPTS:
                 challenge.consumed_at = now
             challenge.save(update_fields=["attempt_count", "consumed_at"])

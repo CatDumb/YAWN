@@ -4,6 +4,7 @@ from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Q
 
 
 class UserManager(BaseUserManager):
@@ -136,6 +137,60 @@ class ManagerAssignment(models.Model):
             CompanyMembership.Role.HR_ADMIN,
         }:
             raise ValidationError("Manager membership must have manager or HR/admin role.")
+
+
+class AccessRequest(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        related_name="access_requests",
+    )
+    email = models.EmailField(db_index=True)
+    first_name = models.CharField(max_length=150)
+    last_name = models.CharField(max_length=150)
+    request_fingerprint = models.CharField(max_length=64, db_index=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewer = models.ForeignKey(
+        "User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reviewed_access_requests",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "email"],
+                condition=Q(status="pending"),
+                name="accounts_pending_access_request_unique",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["company", "email", "created_at"],
+                name="access_company_email_idx",
+            ),
+            models.Index(
+                fields=["company", "request_fingerprint", "created_at"],
+                name="access_company_fingerprint_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.email} access request for {self.company.name}"
+
+    def save(self, *args, **kwargs):
+        self.email = User.objects.normalize_email(self.email).lower()
+        super().save(*args, **kwargs)
 
 
 class EmailOTPChallenge(models.Model):

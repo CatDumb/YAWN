@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: WIO Tracker API
+  title: YAWN API
   version: 1.0.0
   description: API for work-in-office tracking and approval workflows.
 paths:
@@ -49,7 +49,11 @@ paths:
       - {}
       responses:
         '202':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OTPRequestResponse'
+          description: ''
   /api/v1/auth/otp/verify/:
     post:
       operationId: v1_auth_otp_verify_create
@@ -76,6 +80,32 @@ paths:
               schema:
                 $ref: '#/components/schemas/CurrentUser'
           description: ''
+  /api/v1/auth/sign-up/:
+    post:
+      operationId: v1_auth_sign_up_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccessRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AccessRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AccessRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessRequestResponse'
+          description: ''
   /api/v1/users/me/:
     get:
       operationId: v1_users_me_retrieve
@@ -92,6 +122,29 @@ paths:
           description: ''
 components:
   schemas:
+    AccessRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+      required:
+      - email
+      - first_name
+      - last_name
+    AccessRequestResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
     CSRFTokenResponse:
       type: object
       properties:
@@ -145,6 +198,17 @@ components:
           format: email
       required:
       - email
+    OTPRequestResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+        challenge_id:
+          type: string
+          format: uuid
+      required:
+      - challenge_id
+      - detail
     OTPVerify:
       type: object
       properties:
