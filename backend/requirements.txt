@@ -24,29 +24,29 @@ django==5.2.16 \
     #   djangorestframework
     #   drf-spectacular
     #   sentry-sdk
-    #   wio-tracker-backend
+    #   yawn-backend
 django-cors-headers==4.9.0 \
     --hash=sha256:15c7f20727f90044dcee2216a9fd7303741a864865f0c3657e28b7056f61b449 \
     --hash=sha256:fe5d7cb59fdc2c8c646ce84b727ac2bca8912a247e6e68e1fb507372178e59e8
-    # via wio-tracker-backend
+    # via yawn-backend
 django-environ==0.14.0 \
     --hash=sha256:8dbe8a57f0a540ab8abd6f54f230de5e99e3a2c9d797cb9caecb037bca3d47d8 \
     --hash=sha256:b6c48d93b9d2ff8a3ea14099e90c35aa4f101c1b4d5f262dfee0d27b06742ed7
-    # via wio-tracker-backend
+    # via yawn-backend
 djangorestframework==3.17.1 \
     --hash=sha256:a6def5f447fe78ff853bff1d47a3c59bf38f5434b031780b351b0c73a62db1a5 \
     --hash=sha256:c3c74dd3e83a5a3efc37b3c18d92bd6f86a6791c7b7d4dff62bb068500e76457
     # via
     #   drf-spectacular
-    #   wio-tracker-backend
+    #   yawn-backend
 drf-spectacular==0.30.0 \
     --hash=sha256:006cf5921ebe20a9bd24f7c846261ebbf78780be5961b0d6e87afaa82afd62ff \
     --hash=sha256:53e79e7ba00e240441b63c32273754a5368e4c2ab44a19f2595277cc1cd559c9
-    # via wio-tracker-backend
+    # via yawn-backend
 gunicorn==23.0.0 \
     --hash=sha256:ec400d38950de4dfd418cff8328b2c8faed0edb0d517d3394e457c317908ca4d \
     --hash=sha256:f014447a0101dc57e294f6c18ca6b40227a4c90e9bdb586042628030cba004ec
-    # via wio-tracker-backend
+    # via yawn-backend
 inflection==0.5.1 \
     --hash=sha256:1a29730d366e996aaacffb2f1f1cb9593dc38e2ddd30c91250c6dde09ea9b417 \
     --hash=sha256:f38b2b640938a4f35ade69ac3d053042959b62a0f1076a5bbaa1b9526605a8a2
@@ -66,7 +66,7 @@ packaging==26.2 \
 psycopg==3.3.4 \
     --hash=sha256:b6bbc25ccf05c8fad3b061d9db2ef0909a555171b84b07f29458a447253d679a \
     --hash=sha256:e21207764952cff81b6b8bdacad9a3939f2793367fdac2987b3aac36a651b5bc
-    # via wio-tracker-backend
+    # via yawn-backend
 psycopg-binary==3.3.4 ; implementation_name != 'pypy' \
     --hash=sha256:018fbed325936da502feb546642c982dcc4b9ffdea32dfef78dbf3b7f7ad4070 \
     --hash=sha256:17a21953a9e5ff3a16dab692625a3676e2f101db5e40072f39dbee2250194d68 \
@@ -83,7 +83,7 @@ psycopg-binary==3.3.4 ; implementation_name != 'pypy' \
 python-json-logger==4.1.0 \
     --hash=sha256:132994765cf75bf44554be9aa49b06ef2345d23661a96720262716438141b6b2 \
     --hash=sha256:b396b9e3ed782b09ff9d6e4f1683d46c83ad0d35d2e407c09a9ebbf038f88195
-    # via wio-tracker-backend
+    # via yawn-backend
 pyyaml==6.0.3 \
     --hash=sha256:41715c910c881bc081f1e8872880d3c650acf13dfa8214bad49ed4cede7c34ea \
     --hash=sha256:5fcd34e47f6e0b794d17de1b4ff496c00986e1c83f7ab2fb8fcfe9616ff7477b \
@@ -126,7 +126,7 @@ rpds-py==2026.6.3 \
 sentry-sdk==2.66.0 \
     --hash=sha256:096136c214c602be2b323524d30755dc5b30ec5a218a206207f33b12c05c6f11 \
     --hash=sha256:9727d35aa83c56cd53294676fe65b96296a334c9ce107fa2142bd70f47acb265
-    # via wio-tracker-backend
+    # via yawn-backend
 sqlparse==0.5.5 \
     --hash=sha256:12a08b3bf3eec877c519589833aed092e2444e68240a3577e8e26148acc7b1ba \
     --hash=sha256:e20d4a9b0b8585fdf63b10d30066c7c94c5d7a7ec47c889a2d83a3caa93ff28e
@@ -154,4 +154,4 @@ urllib3==2.7.0 \
 whitenoise==6.12.0 \
     --hash=sha256:f723ebb76a112e98816ff80fcea0a6c9b8ecde835f8ddda25df7a30a3c2db6ad \
     --hash=sha256:fc5e8c572e33ebf24795b47b6a7da8da3c00cff2349f5b04c02f28d0cc5a3cc2
-    # via wio-tracker-backend
+    # via yawn-backend

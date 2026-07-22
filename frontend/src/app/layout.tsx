@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "WIO Tracker",
+  title: "YAWN — Yet Another WIO Tracker",
   description: "Work-in-office tracking and approval workflows.",
 };
 

@@ -2,6 +2,7 @@ from pathlib import Path
 
 import environ
 import sentry_sdk
+from django.core.exceptions import ImproperlyConfigured
 from sentry_sdk.integrations.django import DjangoIntegration
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -115,7 +116,7 @@ REST_FRAMEWORK = {
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "WIO Tracker API",
+    "TITLE": "YAWN API",
     "DESCRIPTION": "API for work-in-office tracking and approval workflows.",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
@@ -138,13 +139,29 @@ EMAIL_HOST_USER = env("DJANGO_EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = env("DJANGO_EMAIL_HOST_PASSWORD", default="")
 EMAIL_USE_TLS = env.bool("DJANGO_EMAIL_USE_TLS", default=False)
 DEFAULT_FROM_EMAIL = env("DJANGO_DEFAULT_FROM_EMAIL", default="no-reply@example.com")
+DJANGO_EMAIL_TIMEOUT_SECONDS = env.int("DJANGO_EMAIL_TIMEOUT_SECONDS", default=10)
+if DJANGO_EMAIL_TIMEOUT_SECONDS < 1:
+    raise ImproperlyConfigured("DJANGO_EMAIL_TIMEOUT_SECONDS must be a positive integer.")
+EMAIL_TIMEOUT = DJANGO_EMAIL_TIMEOUT_SECONDS
 
 WIO_OTP_TTL_SECONDS = env.int("WIO_OTP_TTL_SECONDS", default=600)
 WIO_OTP_MAX_ATTEMPTS = env.int("WIO_OTP_MAX_ATTEMPTS", default=5)
 WIO_OTP_RESEND_SECONDS = env.int("WIO_OTP_RESEND_SECONDS", default=60)
 WIO_OTP_REQUESTS_PER_HOUR = env.int("WIO_OTP_REQUESTS_PER_HOUR", default=5)
-WIO_OTP_IP_REQUESTS_PER_HOUR = env.int("WIO_OTP_IP_REQUESTS_PER_HOUR", default=20)
+WIO_OTP_IP_REQUESTS_PER_HOUR = env.int("WIO_OTP_IP_REQUESTS_PER_HOUR", default=100)
+WIO_APP_URL = env("WIO_APP_URL", default="http://localhost:3000")
+WIO_SIGNUP_COMPANY_SLUG = env("WIO_SIGNUP_COMPANY_SLUG", default="")
+WIO_SIGNUP_REQUESTS_PER_HOUR = env.int("WIO_SIGNUP_REQUESTS_PER_HOUR", default=5)
+WIO_SIGNUP_FINGERPRINT_REQUESTS_PER_HOUR = env.int(
+    "WIO_SIGNUP_FINGERPRINT_REQUESTS_PER_HOUR",
+    default=20,
+)
+WIO_ALLOW_INSECURE_DEV_SEED = env.bool("WIO_ALLOW_INSECURE_DEV_SEED", default=False)
 WIO_TRUST_PROXY_HEADERS = env.bool("WIO_TRUST_PROXY_HEADERS", default=False)
+
+# Sessions last a fixed 14 days. Activity does not extend this window.
+SESSION_COOKIE_AGE = 14 * 24 * 60 * 60
+SESSION_SAVE_EVERY_REQUEST = False
 
 LOGGING = {
     "version": 1,

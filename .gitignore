@@ -55,3 +55,17 @@ schema.generated.yml
 # Frontend test artifacts
 frontend/coverage/
 frontend/test-results/
+backend/.e2e/
+
+.scripts
+
+# Local agent and Impeccable state
+.agents/
+.codex/
+.github/hooks/
+.github/skills/
+.impeccable/
+.past-docs/
+DESIGN.md
+PRODUCT.md
+recap.md

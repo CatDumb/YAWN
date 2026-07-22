@@ -1,4 +1,6 @@
-# WIO Tracker
+# YAWN
+
+Yet Another WIO Tracker.
 
 Single-company web app for tracking work-in-office activity, approvals, endorsements, evidence, and office seating.
 
@@ -8,6 +10,20 @@ Phase 1 foundation covers frontend/backend scaffolding, operational baseline, lo
 
 See [ROADMAP.md](ROADMAP.md) for delivery phases and [TECHSTACK.md](TECHSTACK.md) for architecture and technology decisions.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for required commit-message format and [CHANGELOG.md](CHANGELOG.md) for release history.
+See [testing](docs/testing.md) and [infrastructure](docs/infrastructure.md) for operating guides.
+
+## Phase 2 identity and access
+
+Phase 2 design and implementation baseline lives in [recap.md](recap.md). Flow documentation:
+
+- [Access-request sign-up](docs/auth-sign-up.md)
+- [OTP login, session, and logout](docs/auth-login.md)
+- [Admin access and user lifecycle](docs/admin-user-lifecycle.md)
+
+For an explicitly opted-in local development administrator, set `DJANGO_DEBUG=true` and
+`WIO_ALLOW_INSECURE_DEV_SEED=true`, then run `uv run python manage.py seed_dev_admin` from
+`backend`. It creates `admin@wio.local` with password `admin` once; never use this outside local
+development. See [backend setup](backend/README.md).
 
 ## Layout
 
@@ -18,47 +34,114 @@ backend/              Django and Django REST Framework API
   apps/                Django domain applications
 tests/                Cross-service and end-to-end tests
 .github/workflows/    CI/CD workflow definitions
-infra/                Deployment and infrastructure support files
+infra/                Deployment support files
 ```
 
 ## Development
 
-Prerequisites: Docker Desktop, or Python 3.12 with `uv` plus Node.js 24.
+Prerequisite for the default local stack: Docker Desktop with Docker Compose v2.
 
-Docker setup:
+### One-command Docker Compose startup
+
+Run this from repository root. It builds and starts PostgreSQL, Django, and Next.js as Docker
+Compose services, waits for their health checks, applies migrations, and creates the `wio` signup
+company:
 
 ```powershell
-Copy-Item .env.example .env
-docker compose up --build
+powershell -ExecutionPolicy Bypass -File .\scripts\start-app.ps1
 ```
 
-Services:
+Services after startup:
 
 - Frontend: `http://localhost:3000`
 - Backend health: `http://localhost:8000/health/`
 - Swagger UI: `http://localhost:8000/api/schema/swagger-ui/`
 - Django Admin: `http://localhost:8000/admin/`
 
-Local quality checks:
+View state or logs:
+
+```powershell
+docker compose ps
+docker compose logs --follow
+```
+
+Create an administrator:
+
+```powershell
+docker compose exec backend python manage.py createsuperuser
+```
+
+### Gmail SMTP for Docker Compose
+
+Compose reads mail settings from root ignored `.env`, not `backend/.env`. Copy `.env.example` to
+`.env`, replace its active console-mail values with the Gmail SMTP values in the commented example,
+and use a Google App Password without spaces. After changing mail settings, recreate the mail-sending
+services:
+
+```powershell
+docker compose up --detach --force-recreate backend cleanup
+```
+
+The Gmail address must be identical for `DJANGO_EMAIL_HOST_USER` and
+`DJANGO_DEFAULT_FROM_EMAIL`. Check Spam and All Mail during initial delivery tests.
+
+Reset Compose databases only when their local data is disposable. This permanently removes YAWN
+volumes plus legacy `wio-tracker` Compose and `wio-postgres` data, then starts a clean YAWN stack:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-app.ps1 -ResetDatabase
+```
+
+Include optional Redis:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-app.ps1 -WithRedis
+```
+
+### Manual local-process startup
+
+Prerequisites: PostgreSQL 16+, Python 3.12 with `uv`, and Node.js 24.
+
+Start PostgreSQL with Docker, if needed:
+
+```powershell
+docker run --name wio-postgres --env POSTGRES_DB=wio --env POSTGRES_USER=wio --env POSTGRES_PASSWORD=change-me-for-local-development --publish 5432:5432 --detach postgres:16
+```
+
+Start backend in one terminal:
 
 ```powershell
 Set-Location backend
+Copy-Item .env.example .env
+$env:DJANGO_READ_DOT_ENV_FILE = 'true'
 uv sync --all-groups --frozen
-uv run pytest -p no:cacheprovider
-uv run ruff check .
+uv run python manage.py migrate
+uv run python manage.py createsuperuser
+uv run python manage.py shell -c "from apps.accounts.models import Company; Company.objects.get_or_create(slug='wio', defaults={'name': 'WIO'})"
+# Set WIO_SIGNUP_COMPANY_SLUG=wio in .env, then:
+uv run python manage.py runserver
+```
 
-Set-Location ..\frontend
+Start frontend in another terminal:
+
+```powershell
+Set-Location frontend
+Copy-Item .env.example .env.local
 npm ci
-npm run lint
-npm run typecheck
-npm test
+npm run dev
+```
 
-# Enforces 70% unit-test coverage for each service and writes local reports.
-Set-Location ..\backend
-uv run pytest --cov-report=xml:coverage.xml --cov-report=html:htmlcov
+Local quality checks:
 
-Set-Location ..\frontend
-npm run test:coverage
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\check.ps1
+```
+
+This canonical local gate runs backend Ruff, tests, migration/schema checks, and frontend format,
+lint, types, coverage, and production build. Docker builds are intentionally optional:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\check.ps1 -ContainerBuild
 ```
 
 ## Architecture

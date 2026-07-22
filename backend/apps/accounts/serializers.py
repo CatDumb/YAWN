@@ -3,6 +3,25 @@ from rest_framework import serializers
 from apps.accounts.models import User
 
 
+class AccessRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    first_name = serializers.CharField(max_length=150, trim_whitespace=True)
+    last_name = serializers.CharField(max_length=150, trim_whitespace=True)
+
+    def validate_email(self, value):
+        return value.strip().lower()
+
+    def validate_first_name(self, value):
+        if not value:
+            raise serializers.ValidationError("This field may not be blank.")
+        return value
+
+    def validate_last_name(self, value):
+        if not value:
+            raise serializers.ValidationError("This field may not be blank.")
+        return value
+
+
 class OTPRequestSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
@@ -13,6 +32,15 @@ class OTPRequestSerializer(serializers.Serializer):
 class OTPVerifySerializer(OTPRequestSerializer):
     challenge_id = serializers.UUIDField()
     code = serializers.RegexField(r"^\d{6}$")
+
+
+class AccessRequestResponseSerializer(serializers.Serializer):
+    detail = serializers.CharField()
+
+
+class OTPRequestResponseSerializer(serializers.Serializer):
+    detail = serializers.CharField()
+    challenge_id = serializers.UUIDField()
 
 
 class MembershipSerializer(serializers.Serializer):

@@ -6,7 +6,7 @@
   "packages": {
     ".": {
       "release-type": "simple",
-      "package-name": "wio-tracker",
+      "package-name": "yawn",
       "changelog-path": "CHANGELOG.md"
     }
   }

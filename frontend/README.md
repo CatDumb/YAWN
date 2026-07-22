@@ -1,13 +1,12 @@
 # Frontend
 
-Next.js App Router frontend for WIO Tracker.
+Next.js App Router frontend for YAWN.
 
 ## Responsibilities
 
-- Email OTP login and authenticated user experience
-- Daily work-log entry and status views
-- Manager approval workflow
-- Dashboards, reports, evidence, and seat selection
+- Signup-first access request, with generic pending-review confirmation
+- Email OTP login, session restore, logout, and authenticated identity placeholder
+- Phase 3 onward: work logs, approvals, dashboards, evidence, and seat selection
 
 The frontend will use TypeScript, Tailwind CSS, daisyUI, React Hook Form, and Zod as described in [TECHSTACK.md](../TECHSTACK.md).
 

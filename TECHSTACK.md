@@ -1,4 +1,4 @@
-# WIO Tracker Tech Stack
+# YAWN Tech Stack
 
 ## Frontend
 
@@ -114,8 +114,8 @@ GitHub Actions workflows live under `.github/workflows/`:
 
 - `ci.yml`: backend tests, frontend tests, linting, type checks, and build validation.
 - `security.yml`: dependency audit, secret scanning, and Docker image scanning.
-- `staging.yml`: build tagged images, deploy staging, run migrations, and execute smoke tests.
-- `production.yml`: deploy only from release tag or manual approval, run migrations, smoke test, and report status.
+- `staging.yml`: trigger provider deploy, wait for health, and execute smoke tests.
+- `production.yml`: deploy only from release tag or manual approval, wait for health, smoke test, and report status.
 
 Pipeline rules:
 
@@ -124,6 +124,7 @@ Pipeline rules:
 - Docker images use commit SHA tags, never only `latest`.
 - Failed health checks stop deployment.
 - Keep previous image available for rollback.
+- Render pre-deploy owns `python manage.py migrate --noinput`; GitHub workflows never run a second migration command.
 
 GitHub Actions supports repository workflows for CI/CD, protected environments, deployment approvals, and secret controls. [GitHub Actions docs](https://docs.github.com/en/actions)
 

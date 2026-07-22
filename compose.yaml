@@ -1,4 +1,4 @@
-name: wio-tracker
+name: yawn
 
 services:
   db:
@@ -21,19 +21,25 @@ services:
       context: ./backend
       args:
         DEPLOYMENT_VERSION: ${APP_VERSION:-development}
+    env_file:
+      - path: .env
+        required: false
     environment:
-      DJANGO_SETTINGS_MODULE: config.settings.development
-      DJANGO_SECRET_KEY: django-insecure-compose-local-only
-      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
-      DJANGO_CORS_ALLOWED_ORIGINS: http://localhost:${FRONTEND_PORT:-3000}
-      DJANGO_CSRF_TRUSTED_ORIGINS: http://localhost:${FRONTEND_PORT:-3000}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-wio}:${POSTGRES_PASSWORD:-wio-local-only}@db:5432/${POSTGRES_DB:-wio}
-      DJANGO_EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.development}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-django-insecure-compose-local-only}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      DJANGO_CORS_ALLOWED_ORIGINS: ${DJANGO_CORS_ALLOWED_ORIGINS:-http://localhost:${FRONTEND_PORT:-3000}}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost:${FRONTEND_PORT:-3000}}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-wio}:${POSTGRES_PASSWORD:-wio-local-only}@db:5432/${POSTGRES_DB:-wio}}
+      WIO_SIGNUP_COMPANY_SLUG: ${WIO_SIGNUP_COMPANY_SLUG:-wio}
       DEPLOYMENT_VERSION: ${APP_VERSION:-development}
     command:
       - sh
       - -c
-      - python manage.py migrate && gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 2 --access-logfile - --error-logfile -
+      - >-
+        python manage.py migrate &&
+        python manage.py shell -c "from django.conf import settings; from apps.accounts.models import Company; slug=settings.WIO_SIGNUP_COMPANY_SLUG; Company.objects.get_or_create(slug=slug, defaults={'name': slug})" &&
+        exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 2 --access-logfile - --error-logfile -
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
@@ -50,6 +56,32 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
+
+  cleanup:
+    build:
+      context: ./backend
+      args:
+        DEPLOYMENT_VERSION: ${APP_VERSION:-development}
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.development}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-django-insecure-compose-local-only}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-wio}:${POSTGRES_PASSWORD:-wio-local-only}@db:5432/${POSTGRES_DB:-wio}}
+      DEPLOYMENT_VERSION: ${APP_VERSION:-development}
+    command:
+      - sh
+      - -c
+      - >-
+        while true; do if ! (python manage.py purge_expired_otps --hours 24 && python manage.py clearsessions); then echo "Cleanup failed; retrying in 24 hours." >&2; fi; sleep 86400; done
+    depends_on:
+      db:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
     restart: unless-stopped
 
   frontend:
@@ -69,7 +101,7 @@ services:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:3000/"]
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:3000/"]
       interval: 10s
       timeout: 5s
       retries: 10
