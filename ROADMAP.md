@@ -58,21 +58,30 @@ MVP calculation rules:
 - Add employee, line manager, and HR/admin role assignment.
 - Add role and company permission checks.
 - Add email OTP request, verification, session, logout, CSRF, and rate-limit behavior.
+- Before Phase 3, complete identity hardening: require explicit inactive-membership reactivation,
+  cover OTP abuse-control branches, bound synchronous SMTP delivery with a hard timeout, and enforce
+  the 60-second resend policy consistently.
+- Separate the public access/login entry at `/` from the protected `/dashboard` route, and add one
+  real-browser authentication contract test across Next.js and Django.
 
 
 ### Phase 3: Daily logs and ratio
 
 - Add project, employee base location, and ratio-rule administration.
 - Add draft, submit, edit, and duplicate-date protection.
+- Add the minimum assignment-scoped approve/reject path needed for a complete
+  create-submit-approve-ratio slice, including state locks and audit events.
 - Add personal monthly dashboard and custom-range ratio reports.
+- Make ratio results explainable with a per-day ledger containing eligibility or exclusion reason,
+  effective rule/version, expected fraction, approved credit, and rounding inputs/results.
 - Add personal activity heatmap with calendar days shaded by activity; distinguish submitted logs from approved WIO days.
 
 ### Phase 4: Manager workflow
 
-- Add manager-to-employee assignments.
-- Add pending approval queue.
-- Add approve/reject actions and rejection reasons.
-- Freeze approved-log changes; preserve audit records.
+- Expand manager-to-employee assignment administration beyond the minimum Phase 3 path.
+- Add dedicated pending queue, filters, and workflow-management UX.
+- Expand approve/reject handling and rejection-reason UX without changing Phase 3 approval semantics.
+- Preserve approved-log immutability and audit records established by the Phase 3 slice.
 
 ### Phase 5: Endorsements
 
@@ -84,12 +93,19 @@ MVP calculation rules:
 
 - Add private image upload.
 - Add explicit browser webcam capture permission flow.
+- Store retention deadline with evidence and delete content 90 days after final approval or rejection,
+  unless legal hold applies.
+- Add legal-hold administration, idempotent deletion, deletion audit events, and retained audit
+  metadata in the same release as upload; do not defer lifecycle enforcement to pilot hardening.
 - Add admin floor-plan and seat editor.
 - Add daily seat selection.
 - Keep integration boundary for future room-booking or external map systems.
 
 ### Phase 7: Pilot and hardening
 
+- Before pilot traffic, move OTP and approval email from request workers to a durable
+  outbox/background worker with bounded retries, idempotency, operator recovery, queue monitoring,
+  and an end-to-end delivery check.
 - Pilot with one team/company.
 - Validate ratio, approval, evidence privacy, and seat workflows.
 - After pilot feedback, add line and company dashboards with role- and scope-based metrics.
@@ -159,4 +175,5 @@ MVP calculation rules:
 - Evidence content is retained for 90 days after final approval or rejection, then deleted unless legal hold applies. Audit metadata remains.
 - OTP expires after 10 minutes, allows five verification attempts, has a 60-second resend cooldown, and limits requests per email and request fingerprint.
 - One employee may hold one seat per date, and one seat may belong to only one employee per date. Enforce both rules with database constraints.
-- Manager assignments are modeled during Phase 2; assignment-scoped approval behavior arrives in Phase 4.
+- Manager assignments are modeled during Phase 2; the minimum assignment-scoped approval path
+  arrives in Phase 3, and richer manager workflow arrives in Phase 4.

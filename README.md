@@ -10,6 +10,7 @@ Phase 1 foundation covers frontend/backend scaffolding, operational baseline, lo
 
 See [ROADMAP.md](ROADMAP.md) for delivery phases and [TECHSTACK.md](TECHSTACK.md) for architecture and technology decisions.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for required commit-message format and [CHANGELOG.md](CHANGELOG.md) for release history.
+See [testing](docs/testing.md) and [infrastructure](docs/infrastructure.md) for operating guides.
 
 ## Phase 2 identity and access
 
@@ -33,7 +34,7 @@ backend/              Django and Django REST Framework API
   apps/                Django domain applications
 tests/                Cross-service and end-to-end tests
 .github/workflows/    CI/CD workflow definitions
-infra/                Deployment and infrastructure support files
+infra/                Deployment support files
 ```
 
 ## Development
@@ -133,23 +134,14 @@ npm run dev
 Local quality checks:
 
 ```powershell
-Set-Location backend
-uv sync --all-groups --frozen
-uv run pytest -p no:cacheprovider
-uv run ruff check .
+powershell -ExecutionPolicy Bypass -File .\scripts\check.ps1
+```
 
-Set-Location ..\frontend
-npm ci
-npm run lint
-npm run typecheck
-npm test
+This canonical local gate runs backend Ruff, tests, migration/schema checks, and frontend format,
+lint, types, coverage, and production build. Docker builds are intentionally optional:
 
-# Enforces 70% unit-test coverage for each service and writes local reports.
-Set-Location ..\backend
-uv run pytest --cov-report=xml:coverage.xml --cov-report=html:htmlcov
-
-Set-Location ..\frontend
-npm run test:coverage
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\check.ps1 -ContainerBuild
 ```
 
 ## Architecture

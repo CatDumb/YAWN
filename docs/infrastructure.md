@@ -43,7 +43,7 @@ and host secrets. Its `cleanup` service waits for database/backend health, then 
 `purge_expired_otps --hours 24` and `clearsessions` every 24 hours.
 
 Release test: submit public request, approve in Admin, receive approval email, open homepage,
-request Gmail OTP, verify frontend session, wait 30 seconds, resend, then confirm logout and login
+request Gmail OTP, verify frontend session, wait 60 seconds, resend, then confirm logout and login
 behavior.
 
 GitHub variable `DEPLOYMENTS_ENABLED=true` enables deploy jobs. Configure staging and production GitHub Environments with:
