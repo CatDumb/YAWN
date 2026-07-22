@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from django.contrib.auth.hashers import make_password
 from django.core import mail
 from django.core.management import CommandError, call_command
 from django.db import transaction
@@ -170,6 +171,105 @@ def test_email_rate_limit_remains_bounded_after_otp_expiry(client, active_user):
 
 
 @pytest.mark.django_db(transaction=True)
+def test_otp_fingerprint_rate_limit_remains_generic_and_bounded(client, settings):
+    settings.WIO_OTP_IP_REQUESTS_PER_HOUR = 2
+
+    for email in ("first@example.com", "second@example.com", "third@example.com"):
+        response = client.post(
+            "/api/v1/auth/otp/request/",
+            {"email": email},
+            content_type="application/json",
+        )
+        assert response.status_code == 202
+        assert response.json()["detail"] == (
+            "If the account is eligible, a sign-in code has been sent."
+        )
+
+    assert EmailOTPChallenge.objects.count() == 2
+    assert len(mail.outbox) == 0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_expired_otp_cannot_create_session_or_be_reused(client, active_user):
+    challenge = EmailOTPChallenge.objects.create(
+        user=active_user,
+        email=active_user.email,
+        code_hash=make_password("123456"),
+        request_fingerprint="test-fingerprint",
+        expires_at=timezone.now() - timedelta(seconds=1),
+    )
+
+    response = client.post(
+        "/api/v1/auth/otp/verify/",
+        {"email": active_user.email, "challenge_id": challenge.pk, "code": "123456"},
+        content_type="application/json",
+    )
+    challenge.refresh_from_db()
+
+    assert response.status_code == 400
+    assert challenge.consumed_at is None
+    assert challenge.attempt_count == 0
+    assert not client.session.get("_auth_user_id")
+    assert not AuditEvent.objects.filter(event_type="auth.otp_login_succeeded").exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_otp_attempt_exhaustion_consumes_challenge(client, active_user, settings):
+    request_response = client.post(
+        "/api/v1/auth/otp/request/",
+        {"email": active_user.email},
+        content_type="application/json",
+    )
+    challenge_id = request_response.json()["challenge_id"]
+    code = re.search(r"\b\d{6}\b", mail.outbox[0].body).group(0)
+
+    for _ in range(settings.WIO_OTP_MAX_ATTEMPTS):
+        response = client.post(
+            "/api/v1/auth/otp/verify/",
+            {"email": active_user.email, "challenge_id": challenge_id, "code": "000000"},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    replay = client.post(
+        "/api/v1/auth/otp/verify/",
+        {"email": active_user.email, "challenge_id": challenge_id, "code": code},
+        content_type="application/json",
+    )
+    challenge = EmailOTPChallenge.objects.get(pk=challenge_id)
+
+    assert replay.status_code == 400
+    assert challenge.consumed_at is not None
+    assert not client.session.get("_auth_user_id")
+    assert not AuditEvent.objects.filter(event_type="auth.otp_login_succeeded").exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_otp_challenge_email_mismatch_cannot_create_session(client, active_user):
+    request_response = client.post(
+        "/api/v1/auth/otp/request/",
+        {"email": active_user.email},
+        content_type="application/json",
+    )
+    code = re.search(r"\b\d{6}\b", mail.outbox[0].body).group(0)
+
+    response = client.post(
+        "/api/v1/auth/otp/verify/",
+        {
+            "email": "other@example.com",
+            "challenge_id": request_response.json()["challenge_id"],
+            "code": code,
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Invalid or expired code."}
+    assert not client.session.get("_auth_user_id")
+    assert not AuditEvent.objects.filter(event_type="auth.otp_login_succeeded").exists()
+
+
+@pytest.mark.django_db(transaction=True)
 def test_otp_is_reused_during_resend_cooldown(client, active_user):
     first = client.post(
         "/api/v1/auth/otp/request/",
@@ -256,7 +356,8 @@ def test_approval_email_failure_log_omits_recipient(monkeypatch, caplog):
 def test_otp_and_session_policy_defaults(settings):
     assert settings.WIO_OTP_TTL_SECONDS == 600
     assert settings.WIO_OTP_MAX_ATTEMPTS == 5
-    assert settings.WIO_OTP_RESEND_SECONDS == 30
+    assert settings.WIO_OTP_RESEND_SECONDS == 60
+    assert settings.EMAIL_TIMEOUT == 10
     assert settings.WIO_OTP_REQUESTS_PER_HOUR == 5
     assert settings.WIO_OTP_IP_REQUESTS_PER_HOUR == 100
     assert settings.SESSION_COOKIE_AGE == 14 * 24 * 60 * 60
@@ -309,6 +410,15 @@ def test_production_requires_valid_smtp_and_https_app_url(monkeypatch):
         monkeypatch.setattr(production, "WIO_APP_URL", invalid_url)
         with pytest.raises(Exception, match="HTTPS frontend homepage"):
             production._validate_production_email_and_app_url()
+
+
+@pytest.mark.parametrize("timeout", [0, 31])
+def test_production_rejects_out_of_range_smtp_timeout(monkeypatch, timeout):
+    production = _load_valid_production_settings(monkeypatch)
+    monkeypatch.setattr(production, "EMAIL_TIMEOUT", timeout)
+
+    with pytest.raises(Exception, match="DJANGO_EMAIL_TIMEOUT_SECONDS"):
+        production._validate_production_email_and_app_url()
 
 
 @pytest.mark.parametrize("host", ["smtp.gmail.com:587", "smtp.gmail.com/path"])

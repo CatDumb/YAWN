@@ -77,6 +77,7 @@ DJANGO_EMAIL_HOST_USER=yawn@example.com
 DJANGO_EMAIL_HOST_PASSWORD=google-app-password
 DJANGO_EMAIL_USE_TLS=true
 DJANGO_DEFAULT_FROM_EMAIL=yawn@example.com
+DJANGO_EMAIL_TIMEOUT_SECONDS=10
 WIO_APP_URL=http://localhost:3000
 ```
 
@@ -88,7 +89,7 @@ approval sends one post-commit plain-text notification; its delivery failure nev
 approval and is logged without recipient or message content.
 
 Sessions expire exactly 14 days after login and do not refresh on activity. OTP lifetime is 10
-minutes, verification allows five attempts, resend cooldown is 30 seconds, and limits are five
+minutes, verification allows five attempts, resend cooldown is 60 seconds, and limits are five
 requests per email and 100 per request fingerprint per hour. The Compose `cleanup` service runs
 `purge_expired_otps --hours 24` and `clearsessions` every 24 hours.
 

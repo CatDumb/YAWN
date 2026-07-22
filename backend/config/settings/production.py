@@ -19,6 +19,8 @@ EMAIL_HOST_USER = env("DJANGO_EMAIL_HOST_USER", default="").strip()  # noqa: F40
 EMAIL_HOST_PASSWORD = env("DJANGO_EMAIL_HOST_PASSWORD", default="")  # noqa: F405
 _email_use_tls = env("DJANGO_EMAIL_USE_TLS", default="").strip().lower()  # noqa: F405
 DEFAULT_FROM_EMAIL = env("DJANGO_DEFAULT_FROM_EMAIL", default="").strip()  # noqa: F405
+DJANGO_EMAIL_TIMEOUT_SECONDS = env.int("DJANGO_EMAIL_TIMEOUT_SECONDS", default=10)  # noqa: F405
+EMAIL_TIMEOUT = DJANGO_EMAIL_TIMEOUT_SECONDS
 WIO_APP_URL = env("WIO_APP_URL", default="").strip()  # noqa: F405
 
 try:
@@ -50,6 +52,10 @@ def _validate_production_email_and_app_url():
         raise ImproperlyConfigured("Production requires a bare SMTP host without a port or path.")
     if not 1 <= EMAIL_PORT <= 65535:
         raise ImproperlyConfigured("Production requires a valid SMTP port.")
+    if not 1 <= EMAIL_TIMEOUT <= 30:
+        raise ImproperlyConfigured(
+            "DJANGO_EMAIL_TIMEOUT_SECONDS must be between 1 and 30 in production."
+        )
     if not EMAIL_HOST_USER or not EMAIL_HOST_PASSWORD or not EMAIL_USE_TLS:
         raise ImproperlyConfigured("Production requires SMTP username, password, and TLS.")
     if DEFAULT_FROM_EMAIL != EMAIL_HOST_USER:
