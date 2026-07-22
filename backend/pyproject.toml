@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Django REST API for YAWN"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "Django>=5.2,<5.3",
+    "Django>=5.2,<6.1",
     "django-cors-headers>=4.7,<5.0",
     "django-environ>=0.12,<1.0",
     "djangorestframework>=3.16,<4.0",
