@@ -7,13 +7,16 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }));
+const { apiFetch, replace } = vi.hoisted(() => ({
+  apiFetch: vi.fn(),
+  replace: vi.fn(),
+}));
 
 vi.mock("../lib/api", () => ({ apiFetch }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }) }));
 
 import Home from "./page";
 
-const anonymousResponse = () => new Response(null, { status: 401 });
 const jsonResponse = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
     headers: { "Content-Type": "application/json" },
@@ -21,7 +24,6 @@ const jsonResponse = (data: unknown, status = 200) =>
   });
 
 function renderAnonymousHome() {
-  apiFetch.mockResolvedValueOnce(anonymousResponse());
   render(<Home />);
 }
 
@@ -70,27 +72,28 @@ describe("Home", () => {
     });
   });
 
-  it("hides access-request name validation after fields are cleared", async () => {
+  it("shows required-field recovery after an empty access-request submit", async () => {
     renderAnonymousHome();
     const firstName = screen.getByLabelText("First name");
-    const lastName = screen.getByLabelText("Last name");
 
-    fireEvent.change(firstName, { target: { value: "a".repeat(151) } });
-    fireEvent.change(lastName, { target: { value: "a".repeat(151) } });
     fireEvent.click(screen.getByRole("button", { name: "Request access" }));
-    await waitFor(() => {
-      expect(document.querySelectorAll("p.text-error")).toHaveLength(2);
-    });
-
-    fireEvent.change(firstName, { target: { value: "" } });
-    fireEvent.change(lastName, { target: { value: "" } });
-
-    await waitFor(() => {
-      expect(document.querySelectorAll("p.text-error")).toHaveLength(0);
-    });
+    expect(
+      await screen.findByText("Check the highlighted fields and try again."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Enter your first name.")).toBeInTheDocument();
+    expect(screen.getByText("Enter your last name.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Enter a valid email address."),
+    ).toBeInTheDocument();
+    expect(firstName).toHaveAttribute(
+      "aria-describedby",
+      "access-request-first-name-error",
+    );
+    expect(firstName).toHaveAttribute("aria-invalid", "true");
+    expect(firstName).toHaveFocus();
   });
 
-  it("moves approved user through OTP sign-in and renders identity placeholder", async () => {
+  it("moves approved user through OTP sign-in and navigates to dashboard", async () => {
     renderAnonymousHome();
     fireEvent.click(
       screen.getByRole("button", { name: "Already approved? Sign in" }),
@@ -107,24 +110,18 @@ describe("Home", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Send code" }));
 
+    expect(await screen.findByText("ada@example.com")).toBeInTheDocument();
     expect(
-      await screen.findByText("Code sent for ada@example.com"),
+      screen.getByText("Only approved accounts receive sign-in emails."),
     ).toBeInTheDocument();
-    const otpInputs = screen.getAllByRole("textbox", {
-      name: /Digit \d of 6/,
+    expect(
+      screen.getByRole("button", { name: "Resend available in 60 seconds" }),
+    ).toBeDisabled();
+    const otpInput = screen.getByRole("textbox", {
+      name: "Six-digit code",
     });
-    expect(otpInputs).toHaveLength(6);
-    otpInputs.forEach((input) => {
-      expect(input).toHaveClass(
-        "input",
-        "h-18",
-        "w-full",
-        "min-w-0",
-        "px-0",
-        "text-center",
-        "text-2xl",
-      );
-    });
+    expect(otpInput).toHaveAttribute("autocomplete", "one-time-code");
+    expect(otpInput).toHaveAttribute("maxlength", "6");
     apiFetch.mockResolvedValueOnce(
       jsonResponse({
         email: "ada@example.com",
@@ -134,13 +131,12 @@ describe("Home", () => {
         memberships: [{ company: "Example", company_id: 1, role: "employee" }],
       }),
     );
-    fireEvent.change(otpInputs[0], {
+    fireEvent.change(otpInput, {
       target: { value: "123456" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Verify code" }));
 
-    expect(await screen.findByText("You are signed in")).toBeInTheDocument();
-    expect(screen.getByText("Example")).toBeInTheDocument();
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
     expect(apiFetch).toHaveBeenLastCalledWith("/api/v1/auth/otp/verify/", {
       body: JSON.stringify({
         challenge_id: "35eb0786-1a30-4b0a-a292-7a596218de00",
@@ -163,11 +159,11 @@ describe("Home", () => {
       target: { value: "ada@example.com" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Send code" }));
-    await screen.findByText("Code sent for ada@example.com");
+    await screen.findByText("ada@example.com");
     apiFetch.mockResolvedValueOnce(
       jsonResponse({ detail: "Invalid or expired code." }, 400),
     );
-    fireEvent.change(screen.getByLabelText("Digit 1 of 6"), {
+    fireEvent.change(screen.getByLabelText("Six-digit code"), {
       target: { value: "123456" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Verify code" }));
@@ -220,14 +216,9 @@ describe("Home", () => {
     expect(
       await screen.findByText("Enter a valid email address."),
     ).toBeInTheDocument();
-
-    fireEvent.change(email, { target: { value: "" } });
-
-    await waitFor(() => {
-      expect(
-        screen.queryByText("Enter a valid email address."),
-      ).not.toBeInTheDocument();
-    });
+    expect(email).toHaveAttribute("aria-describedby", "sign-in-email-error");
+    expect(email).toHaveAttribute("aria-invalid", "true");
+    expect(email).toHaveFocus();
   });
 
   it("keeps access request available after API outage", async () => {
@@ -242,55 +233,5 @@ describe("Home", () => {
     expect(
       screen.getByRole("button", { name: "Request access" }),
     ).toBeInTheDocument();
-  });
-
-  it("restores existing session and logs out to access request", async () => {
-    apiFetch.mockResolvedValueOnce(
-      jsonResponse({
-        email: "ada@example.com",
-        first_name: "Ada",
-        id: 1,
-        last_name: "Lovelace",
-        memberships: [{ company: "Example", company_id: 1, role: "employee" }],
-      }),
-    );
-    render(<Home />);
-
-    expect(await screen.findByText("You are signed in")).toBeInTheDocument();
-    apiFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
-    fireEvent.click(screen.getByRole("button", { name: "Log out" }));
-
-    await waitFor(() =>
-      expect(
-        screen.getByRole("heading", { name: "Request access" }),
-      ).toBeInTheDocument(),
-    );
-    expect(apiFetch).toHaveBeenLastCalledWith("/api/v1/auth/logout/", {
-      method: "POST",
-    });
-  });
-
-  it("keeps signed-in state when logout fails", async () => {
-    apiFetch.mockResolvedValueOnce(
-      jsonResponse({
-        email: "ada@example.com",
-        first_name: "Ada",
-        id: 1,
-        last_name: "Lovelace",
-        memberships: [{ company: "Example", company_id: 1, role: "employee" }],
-      }),
-    );
-    render(<Home />);
-
-    expect(await screen.findByText("You are signed in")).toBeInTheDocument();
-    apiFetch.mockResolvedValueOnce(
-      jsonResponse({ detail: "Logout unavailable." }, 503),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Log out" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Logout unavailable.",
-    );
-    expect(screen.getByText("You are signed in")).toBeInTheDocument();
   });
 });
