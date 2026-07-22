@@ -42,7 +42,7 @@ succeed.
 | --- | --- | --- |
 | Submit request | `POST /api/v1/auth/sign-up/` | Generic `202`; pending request only. |
 | Review request | Django Admin `AccessRequest` | HR/admin or superuser can approve or reject. |
-| Approve | Django Admin action | Reuses or creates user, creates/reactivates eligible membership, marks approved, writes audit event, then sends one post-commit approval email. |
+| Approve | Django Admin action | Reuses or creates user; creates membership only if absent. Existing inactive membership requires separate explicit reactivation, otherwise request remains pending. Safe approval marks approved, writes audit event, then sends one post-commit approval email. |
 | Reject | Django Admin action | Marks request rejected and writes audit event. |
 
 ## Security rules
@@ -53,6 +53,7 @@ succeed.
 - Approval is atomic and never creates session or sends OTP. Email delivery happens after commit;
   delivery failure is generic, safe-logged, and never reverses approval.
 - Approval must not silently re-enable a disabled user.
+- Approval must not reactivate an inactive membership or alter its role; reactivation is a separate audited Admin action.
 
 ## Use-case diagram
 

@@ -274,9 +274,22 @@ def test_disable_and_enable_actions_enforce_active_user_and_membership(
 
 
 @pytest.mark.django_db
-def test_approval_does_not_reenable_disabled_user(client, company, superuser):
+@pytest.mark.parametrize(
+    "role",
+    [
+        CompanyMembership.Role.EMPLOYEE,
+        CompanyMembership.Role.MANAGER,
+        CompanyMembership.Role.HR_ADMIN,
+    ],
+)
+def test_approval_requires_explicit_reactivation_for_inactive_membership(
+    client,
+    company,
+    superuser,
+    role,
+):
     user = User.objects.create_user(email="disabled@example.com", is_active=False)
-    CompanyMembership.objects.create(user=user, company=company, is_active=False)
+    CompanyMembership.objects.create(user=user, company=company, role=role, is_active=False)
     access_request = AccessRequest.objects.create(
         company=company,
         email=user.email,
@@ -296,7 +309,15 @@ def test_approval_does_not_reenable_disabled_user(client, company, superuser):
     user.refresh_from_db()
     membership = user.memberships.get(company=company)
     assert user.is_active is False
-    assert membership.is_active is True
+    assert membership.role == role
+    assert membership.is_active is False
+    access_request.refresh_from_db()
+    assert access_request.status == AccessRequest.Status.PENDING
+    assert not AuditEvent.objects.filter(
+        event_type="accounts.access_request_approved",
+        target_id=str(access_request.pk),
+    ).exists()
+    assert len(mail.outbox) == 0
     assert not AuditEvent.objects.filter(
         event_type="accounts.user_enabled",
         target_id=str(user.pk),

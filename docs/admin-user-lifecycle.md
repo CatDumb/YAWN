@@ -21,8 +21,10 @@ need staff access and active HR/admin membership; superusers retain full access.
 ### Review access request
 
 1. Reviewer opens `AccessRequest` in Django Admin.
-2. Reviewer approves: transaction creates or reuses user, creates or reactivates employee membership
-   when appropriate, marks request approved, and creates audit event. After commit, one plain-text
+2. Reviewer approves: transaction creates user and employee membership when absent, or reuses an
+   already-active membership without changing its role. Existing inactive memberships are skipped:
+   request stays pending until **Reactivate selected memberships** is run deliberately. Safe requests
+   are still processed. Approval marks request approved and creates audit event. After commit, one plain-text
    approval email directs requester to `WIO_APP_URL` and **Already approved? Sign in**.
 3. Or reviewer rejects: request becomes rejected and audit event is written; no email is sent.
 4. Approved user completes normal OTP login; approval itself does not create session.
@@ -53,6 +55,8 @@ need staff access and active HR/admin membership; superusers retain full access.
 - Non-superuser without active staff HR/admin authority cannot see or review access requests.
 - Unauthorized Django Admin user cannot run lifecycle actions or edit around auditing.
 - Approval for existing disabled user does not re-enable user.
+- Approval for an existing inactive membership leaves request pending, preserves membership role and
+  state, creates no approval audit event, and sends no email. Admin shows only a count of skipped requests.
 - Rejection, repeat approval, disable/enable, direct user creation, and membership reactivation never
   send approval email. Approval-email delivery failure never rolls back approved access and logs no
   recipient or message content.

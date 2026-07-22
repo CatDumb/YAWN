@@ -1,4 +1,4 @@
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
 from django.db import transaction
 from django.utils import timezone
@@ -172,24 +172,34 @@ class AccessRequestAdmin(admin.ModelAdmin):
     @transaction.atomic
     def approve_access_requests(self, request, queryset):
         pending_requests = queryset.select_for_update().filter(status=AccessRequest.Status.PENDING)
+        skipped_count = 0
         for access_request in pending_requests:
             user = (
                 User.objects.select_for_update().filter(email__iexact=access_request.email).first()
             )
+            membership = None
+            if user is not None:
+                membership = (
+                    CompanyMembership.objects.select_for_update()
+                    .filter(user=user, company=access_request.company)
+                    .first()
+                )
+                if membership is not None and not membership.is_active:
+                    skipped_count += 1
+                    continue
             if user is None:
                 user = User.objects.create_user(
                     email=access_request.email,
                     first_name=access_request.first_name,
                     last_name=access_request.last_name,
                 )
-            membership, created = CompanyMembership.objects.select_for_update().get_or_create(
-                user=user,
-                company=access_request.company,
-                defaults={"role": CompanyMembership.Role.EMPLOYEE, "is_active": True},
-            )
-            if not created and not membership.is_active:
-                membership.is_active = True
-                membership.save(update_fields=["is_active"])
+            if membership is None:
+                membership = CompanyMembership.objects.create(
+                    user=user,
+                    company=access_request.company,
+                    role=CompanyMembership.Role.EMPLOYEE,
+                    is_active=True,
+                )
 
             now = timezone.now()
             access_request.status = AccessRequest.Status.APPROVED
@@ -204,6 +214,12 @@ class AccessRequestAdmin(admin.ModelAdmin):
                 metadata={"company_id": access_request.company_id, "user_id": user.pk},
             )
             schedule_approval_email_delivery(recipient=user.email)
+        if skipped_count:
+            self.message_user(
+                request,
+                f"{skipped_count} request(s) skipped; membership reactivation required.",
+                level=messages.WARNING,
+            )
 
     @admin.action(description="Reject selected access requests")
     @transaction.atomic
