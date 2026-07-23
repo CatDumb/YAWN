@@ -1,0 +1,231 @@
+from datetime import date, datetime, timedelta
+from decimal import Decimal
+
+import pytest
+from django.contrib import admin
+from django.core.exceptions import ValidationError
+from django.db import connection
+from django.test import RequestFactory
+from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
+
+from apps.accounts.models import Company, CompanyMembership, User
+from apps.audit.models import AuditEvent
+from apps.work_logs.admin import FiscalPeriodAdmin, WorkInOfficeRecordAdmin
+from apps.work_logs.models import (
+    ApprovedLeave,
+    BaseLocation,
+    EmployeeProjectAssignment,
+    FiscalPeriod,
+    Project,
+    ProjectStatusRule,
+    RemoteWorkException,
+    WorkInOfficeRecord,
+)
+from apps.work_logs.ratio import ratio_ledger
+
+
+@pytest.fixture
+def policy_employee(db):
+    company = Company.objects.create(name="Yawn", slug="yawn")
+    user = User.objects.create_user(email="employee@example.com")
+    return CompanyMembership.objects.create(user=user, company=company)
+
+
+def test_fiscal_period_defaults_cutoff_and_rejects_overlap(policy_employee):
+    period = FiscalPeriod.objects.create(
+        company=policy_employee.company,
+        name="FY26",
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 12, 31),
+        state=FiscalPeriod.State.ACTIVE,
+    )
+    assert period.reconciliation_cutoff == timezone.make_aware(
+        datetime(2027, 1, 14, 23, 59, 59, 999999)
+    )
+    overlap = FiscalPeriod(
+        company=policy_employee.company,
+        name="duplicate",
+        start_date=date(2026, 12, 1),
+        end_date=date(2027, 11, 30),
+    )
+    with pytest.raises(ValidationError, match="cannot overlap"):
+        overlap.full_clean()
+
+
+def test_ratio_ledger_explains_exclusions_and_rounds_once(policy_employee):
+    monday = date(2026, 7, 20)
+    ProjectStatusRule.objects.create(
+        company=policy_employee.company,
+        assignment_status=ProjectStatusRule.AssignmentStatus.BENCHED,
+        effective_from=date(2026, 1, 1),
+        expected_fraction=Decimal("0.50"),
+    )
+    ApprovedLeave.objects.create(
+        employee=policy_employee,
+        effective_from=monday + timedelta(days=1),
+        effective_to=monday + timedelta(days=1),
+        reason="Approved leave",
+        approved_at=timezone.now(),
+    )
+    RemoteWorkException.objects.create(
+        employee=policy_employee,
+        effective_from=monday + timedelta(days=2),
+        effective_to=monday + timedelta(days=2),
+        reason="Approved exception",
+        approved_at=timezone.now(),
+    )
+    WorkInOfficeRecord.objects.create(
+        employee=policy_employee,
+        work_date=monday,
+        location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
+        review_state=WorkInOfficeRecord.ReviewState.APPROVED,
+    )
+    result = ratio_ledger(
+        employee=policy_employee,
+        start_date=monday,
+        end_date=monday + timedelta(days=4),
+        as_of_date=monday + timedelta(days=4),
+    )
+    assert len(result["days"]) == 5
+    assert result["expected_fraction_sum"] == Decimal("1.50")
+    assert result["days"][1].reason == "Approved leave"
+    assert result["days"][2].reason == "Approved remote-work exception"
+    assert result["days"][0].approval_credit == Decimal("1")
+
+
+def test_zero_expected_days_returns_na_and_combines_exclusion_reasons(policy_employee):
+    day = date(2026, 7, 20)
+    ApprovedLeave.objects.create(
+        employee=policy_employee,
+        effective_from=day,
+        effective_to=day,
+        reason="Leave",
+        approved_at=timezone.now(),
+    )
+    RemoteWorkException.objects.create(
+        employee=policy_employee,
+        effective_from=day,
+        effective_to=day,
+        reason="Exception",
+        approved_at=timezone.now(),
+    )
+    result = ratio_ledger(employee=policy_employee, start_date=day, end_date=day, as_of_date=day)
+    assert result["ratio"] is None
+    assert result["ratio_display"] == "N/A"
+    assert result["days"][0].reason == "Approved leave; Approved remote-work exception"
+
+
+def test_ratio_rejects_an_effective_policy_coverage_gap(policy_employee):
+    with pytest.raises(ValidationError, match="No effective policy rule covers benched"):
+        ratio_ledger(
+            employee=policy_employee,
+            start_date=date(2026, 7, 20),
+            end_date=date(2026, 7, 20),
+            as_of_date=date(2026, 7, 20),
+        )
+
+
+def test_ratio_ledger_query_count_does_not_grow_per_calendar_day(policy_employee):
+    start = date(2026, 7, 1)
+    ProjectStatusRule.objects.create(
+        company=policy_employee.company,
+        assignment_status=ProjectStatusRule.AssignmentStatus.BENCHED,
+        effective_from=date(2026, 1, 1),
+        expected_fraction=Decimal("0.50"),
+    )
+
+    def query_count_for(day_count):
+        with CaptureQueriesContext(connection) as queries:
+            result = ratio_ledger(
+                employee=policy_employee,
+                start_date=start,
+                end_date=start + timedelta(days=day_count - 1),
+                as_of_date=start + timedelta(days=day_count - 1),
+            )
+        assert len(result["days"]) == day_count
+        return len(queries)
+
+    assert query_count_for(31) == query_count_for(7)
+
+
+def test_used_assignment_and_rule_are_immutable(policy_employee):
+    location = BaseLocation.objects.create(company=policy_employee.company, name="HQ", code="hq")
+    policy_employee.base_location = location
+    policy_employee.save(update_fields=["base_location"])
+    project = Project.objects.create(
+        company=policy_employee.company, name="Core", code="core", base_location=location
+    )
+    assignment = EmployeeProjectAssignment.objects.create(
+        employee=policy_employee, project=project, effective_from=date(2026, 1, 1)
+    )
+    rule = ProjectStatusRule.objects.create(
+        company=policy_employee.company,
+        assignment_status=ProjectStatusRule.AssignmentStatus.SAME_BASE,
+        effective_from=date(2026, 1, 1),
+        expected_fraction=Decimal("1.00"),
+    )
+    WorkInOfficeRecord.objects.create(
+        employee=policy_employee,
+        work_date=date(2026, 7, 20),
+        assignment_snapshot={"id": assignment.pk, "status": "same_base"},
+        policy_snapshot={"rule": {"id": rule.pk, "fraction": "1.00"}},
+    )
+    assignment.effective_to = date(2026, 12, 31)
+    with pytest.raises(ValidationError, match="cannot be changed"):
+        assignment.full_clean()
+    with pytest.raises(ValidationError, match="cannot be deleted"):
+        rule.delete()
+
+
+def test_work_log_admin_is_scoped_to_hr_company(policy_employee):
+    hr = User.objects.create_user(email="hr@example.com", is_staff=True)
+    CompanyMembership.objects.create(
+        user=hr,
+        company=policy_employee.company,
+        role=CompanyMembership.Role.HR_ADMIN,
+    )
+    request = RequestFactory().get("/admin/work_logs/fiscalperiod/")
+    request.user = hr
+    site_admin = FiscalPeriodAdmin(FiscalPeriod, admin.site)
+    assert site_admin.has_module_permission(request)
+    assert not site_admin.has_view_permission(
+        request,
+        FiscalPeriod(company=Company.objects.create(name="Other", slug="other")),
+    )
+
+
+def test_hr_can_extend_rejected_correction_without_passing_fiscal_cutoff(policy_employee):
+    hr = User.objects.create_user(email="hr@example.com", is_staff=True)
+    CompanyMembership.objects.create(
+        user=hr,
+        company=policy_employee.company,
+        role=CompanyMembership.Role.HR_ADMIN,
+    )
+    period = FiscalPeriod.objects.create(
+        company=policy_employee.company,
+        name="FY26",
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 12, 31),
+        reconciliation_cutoff=timezone.make_aware(datetime(2027, 1, 14, 23, 59, 59, 999999)),
+        state=FiscalPeriod.State.RECONCILIATION,
+    )
+    record = WorkInOfficeRecord.objects.create(
+        employee=policy_employee,
+        work_date=date(2026, 12, 31),
+        location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
+        review_state=WorkInOfficeRecord.ReviewState.REJECTED,
+        correction_deadline=timezone.make_aware(datetime(2027, 1, 13, 23, 59)),
+    )
+    request = RequestFactory().post(
+        "/admin/work_logs/workinofficerecord/", {"audit_reason": "Employee needs more time"}
+    )
+    request.user = hr
+    site_admin = WorkInOfficeRecordAdmin(WorkInOfficeRecord, admin.site)
+    site_admin.extend_rejected_correction(request, WorkInOfficeRecord.objects.filter(pk=record.pk))
+    record.refresh_from_db()
+    assert record.correction_deadline.date() == period.reconciliation_cutoff.date()
+    assert record.correction_deadline <= period.reconciliation_cutoff
+    assert AuditEvent.objects.filter(
+        event_type="work_logs.rejection_correction_extended", target_id=str(record.pk)
+    ).exists()
