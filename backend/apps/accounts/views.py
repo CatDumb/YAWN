@@ -18,7 +18,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.models import AccessRequest, Company, EmailOTPChallenge, User
+from apps.accounts.models import AccessRequest, Company, EmailOTPChallenge, User, UserPreference
 from apps.accounts.serializers import (
     AccessRequestResponseSerializer,
     AccessRequestSerializer,
@@ -26,6 +26,7 @@ from apps.accounts.serializers import (
     OTPRequestResponseSerializer,
     OTPRequestSerializer,
     OTPVerifySerializer,
+    UserPreferenceSerializer,
 )
 from apps.accounts.services import schedule_otp_email_delivery
 from apps.audit.models import AuditEvent
@@ -294,3 +295,28 @@ class CurrentUserView(APIView):
     @extend_schema(responses=CurrentUserSerializer)
     def get(self, request):
         return Response(CurrentUserSerializer(request.user).data)
+
+
+class UserPreferenceView(APIView):
+    @extend_schema(responses=UserPreferenceSerializer)
+    def get(self, request):
+        preference, _ = UserPreference.objects.get_or_create(user=request.user)
+        return Response(UserPreferenceSerializer(preference).data)
+
+    @extend_schema(request=UserPreferenceSerializer, responses=UserPreferenceSerializer)
+    def put(self, request):
+        preference, _ = UserPreference.objects.get_or_create(user=request.user)
+        if request.data.get("version") is None:
+            return Response(
+                {"detail": "Version is required for preferences."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if request.data.get("version") != preference.version:
+            return Response(
+                {"detail": "Preferences changed. Reload latest state and retry."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        serializer = UserPreferenceSerializer(preference, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(version=preference.version + 1)
+        return Response(serializer.data)

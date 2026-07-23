@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.accounts.models import User
+from apps.accounts.models import User, UserPreference
 
 
 class AccessRequestSerializer(serializers.Serializer):
@@ -55,3 +55,29 @@ class CurrentUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["id", "email", "first_name", "last_name", "memberships"]
+
+
+class UserPreferenceSerializer(serializers.ModelSerializer):
+    def validate_planner_location(self, value):
+        if value not in {"", "office", "home"}:
+            raise serializers.ValidationError("Planner location must be Office or Home.")
+        return value
+
+    def validate_planner_commitment(self, value):
+        if value not in {"", "firm", "flexible"}:
+            raise serializers.ValidationError("Planner commitment must be Firm or Flexible.")
+        return value
+
+    class Meta:
+        model = UserPreference
+        fields = [
+            "theme",
+            "language",
+            "reduced_motion",
+            "planner_location",
+            "planner_commitment",
+            "week_start",
+            "display_name",
+            "version",
+        ]
+        read_only_fields = ["version"]

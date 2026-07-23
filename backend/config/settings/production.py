@@ -6,6 +6,7 @@ from django.core.validators import URLValidator, validate_email
 from .base import *  # noqa: F403
 
 DEBUG = False
+WIO_ENFORCE_SINGLE_COMPANY = True
 
 if SECRET_KEY.startswith("django-insecure-"):  # noqa: F405
     raise ImproperlyConfigured("DJANGO_SECRET_KEY must be set to a strong production value.")
