@@ -4,6 +4,107 @@ info:
   version: 1.0.0
   description: API for work-in-office tracking and approval workflows.
 paths:
+  /api/v1/approvals/:
+    get:
+      operationId: v1_approvals_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/approvals/{id}/{action}/:
+    post:
+      operationId: v1_approvals_create
+      parameters:
+      - in: path
+        name: action
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: {}
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: {}
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: {}
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkInOfficeRecord'
+          description: ''
+  /api/v1/approvals/assignees/:
+    get:
+      operationId: v1_approvals_assignees_retrieve
+      description: Active same-company managers an HR/admin user may assign a pending
+        claim to.
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/approvals/count/:
+    get:
+      operationId: v1_approvals_count_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/approvals/pending-assignment/:
+    get:
+      operationId: v1_approvals_pending_assignment_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
   /api/v1/auth/csrf/:
     get:
       operationId: v1_auth_csrf_retrieve
@@ -106,6 +207,286 @@ paths:
               schema:
                 $ref: '#/components/schemas/AccessRequestResponse'
           description: ''
+  /api/v1/dashboard/activity/:
+    get:
+      operationId: v1_dashboard_activity_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/dashboard/heatmap/:
+    get:
+      operationId: v1_dashboard_heatmap_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/dashboard/ratio/:
+    get:
+      operationId: v1_dashboard_ratio_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/dashboard/today/:
+    get:
+      operationId: v1_dashboard_today_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/planner/:
+    get:
+      operationId: v1_planner_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+    post:
+      operationId: v1_planner_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: {}
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: {}
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: {}
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/planner/{id}/:
+    patch:
+      operationId: v1_planner_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: {}
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: {}
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: {}
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+    delete:
+      operationId: v1_planner_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/planner/preview/:
+    post:
+      operationId: v1_planner_preview_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: {}
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: {}
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: {}
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/planner/projection/:
+    get:
+      operationId: v1_planner_projection_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/preferences/:
+    get:
+      operationId: v1_preferences_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPreference'
+          description: ''
+    put:
+      operationId: v1_preferences_update
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserPreference'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserPreference'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserPreference'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPreference'
+          description: ''
+  /api/v1/profile/:
+    get:
+      operationId: v1_profile_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/reports/:
+    get:
+      operationId: v1_reports_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/reports/csv/:
+    get:
+      operationId: v1_reports_csv_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: string
+                format: binary
+          description: ''
   /api/v1/users/me/:
     get:
       operationId: v1_users_me_retrieve
@@ -119,6 +500,128 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CurrentUser'
+          description: ''
+  /api/v1/work-in-office/:
+    get:
+      operationId: v1_work_in_office_list
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkInOfficeRecord'
+          description: ''
+    post:
+      operationId: v1_work_in_office_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkInOfficeRecord'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WorkInOfficeRecord'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/WorkInOfficeRecord'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkInOfficeRecord'
+          description: ''
+  /api/v1/work-in-office/{id}/:
+    get:
+      operationId: v1_work_in_office_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkInOfficeRecord'
+          description: ''
+    put:
+      operationId: v1_work_in_office_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkInOfficeRecord'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WorkInOfficeRecord'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/WorkInOfficeRecord'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkInOfficeRecord'
+          description: ''
+    delete:
+      operationId: v1_work_in_office_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/work-in-office/meta/:
+    get:
+      operationId: v1_work_in_office_meta_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
           description: ''
 components:
   schemas:
@@ -145,6 +648,9 @@ components:
           type: string
       required:
       - detail
+    BlankEnum:
+      enum:
+      - ''
     CSRFTokenResponse:
       type: object
       properties:
@@ -177,6 +683,22 @@ components:
       - email
       - id
       - memberships
+    LanguageEnum:
+      enum:
+      - en
+      - vi
+      type: string
+      description: |-
+        * `en` - English
+        * `vi` - Vietnamese
+    LocationChoiceEnum:
+      enum:
+      - in_office
+      - not_in_office
+      type: string
+      description: |-
+        * `in_office` - In office
+        * `not_in_office` - Not in office
     Membership:
       type: object
       properties:
@@ -190,6 +712,9 @@ components:
       - company
       - company_id
       - role
+    NullEnum:
+      enum:
+      - null
     OTPRequest:
       type: object
       properties:
@@ -225,6 +750,156 @@ components:
       - challenge_id
       - code
       - email
+    ReviewStateEnum:
+      enum:
+      - draft
+      - pending
+      - pending_assignment
+      - approved
+      - rejected
+      - not_required
+      - expired_pending
+      type: string
+      description: |-
+        * `draft` - Draft
+        * `pending` - Pending
+        * `pending_assignment` - Pending assignment
+        * `approved` - Approved
+        * `rejected` - Rejected
+        * `not_required` - Not required
+        * `expired_pending` - Expired pending
+    ThemeEnum:
+      enum:
+      - system
+      - light
+      - dark
+      type: string
+      description: |-
+        * `system` - System
+        * `light` - Light
+        * `dark` - Dark
+    UserPreference:
+      type: object
+      properties:
+        theme:
+          $ref: '#/components/schemas/ThemeEnum'
+        language:
+          $ref: '#/components/schemas/LanguageEnum'
+        reduced_motion:
+          type: boolean
+        planner_location:
+          type: string
+          maxLength: 12
+        planner_commitment:
+          type: string
+          maxLength: 12
+        week_start:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        display_name:
+          type: string
+          maxLength: 150
+        version:
+          type: integer
+          readOnly: true
+      required:
+      - version
+    WorkInOfficeRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        employee_name:
+          type: string
+          readOnly: true
+        employee_email:
+          type: string
+          format: email
+          readOnly: true
+        base_location_name:
+          type: string
+          readOnly: true
+          nullable: true
+        work_date:
+          type: string
+          format: date
+        location_choice:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/LocationChoiceEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        review_state:
+          allOf:
+          - $ref: '#/components/schemas/ReviewStateEnum'
+          readOnly: true
+        note:
+          type: string
+          maxLength: 500
+        approver_note:
+          type: string
+          readOnly: true
+        version:
+          type: integer
+          readOnly: true
+        assignment_snapshot:
+          readOnly: true
+        policy_snapshot:
+          readOnly: true
+        approval_owner_snapshot:
+          readOnly: true
+        approved_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        approved_by_snapshot:
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        submitted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        rejected_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        correction_deadline:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - approval_owner_snapshot
+      - approved_at
+      - approved_by_snapshot
+      - approver_note
+      - assignment_snapshot
+      - base_location_name
+      - correction_deadline
+      - created_at
+      - employee_email
+      - employee_name
+      - id
+      - policy_snapshot
+      - rejected_at
+      - review_state
+      - submitted_at
+      - updated_at
+      - version
+      - work_date
   securitySchemes:
     cookieAuth:
       type: apiKey
