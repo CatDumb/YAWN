@@ -66,6 +66,8 @@ backend/.e2e/
 .github/skills/
 .impeccable/
 .past-docs/
+graphify-out/
+.graphify-venv/
 DESIGN.md
 PRODUCT.md
 recap.md
