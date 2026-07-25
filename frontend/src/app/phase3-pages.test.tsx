@@ -328,7 +328,8 @@ describe("Phase 3 page contracts", () => {
     });
     render(<ReportsPage />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Export CSV" }));
+    await screen.findByText("111.12%");
+    fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith(
         expect.stringContaining("/api/v1/reports/csv/?start_date=2026-07-01"),
