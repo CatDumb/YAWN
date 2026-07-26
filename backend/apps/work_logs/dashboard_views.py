@@ -256,6 +256,7 @@ class DashboardHeatmapView(APIView):
                     "record_id": records[current].pk if current in records else None,
                     "review_state": records[current].review_state if current in records else None,
                     "intention": intentions[current].location if current in intentions else None,
+                    "commitment": intentions[current].commitment if current in intentions else None,
                     "ineligible_reason": ineligible.get(current),
                     "unavailable_reason": unavailable_reason_from_eligibility(
                         ineligible.get(current), current, today

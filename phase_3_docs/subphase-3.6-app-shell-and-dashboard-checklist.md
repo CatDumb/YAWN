@@ -28,9 +28,9 @@ Status: local implementation validation proven 2026-07-24; release acceptance BL
 ## Heatmap
 
 - [ ] Month can move across fiscal years independently of ratio period.
-- [ ] Every required WIO, Pending assignment, Expired pending, intention, exclusion, and empty state is represented.
-- [ ] Meaning never relies on color alone.
-- [ ] Persistent visible legend shows a small square swatch for every state, matching its heatmap cell's semantic fill, border, and state treatment; each swatch sits beside a visible non-color symbol and text label.
+- [x] Every required WIO, Pending assignment, Expired pending, intention, exclusion, and empty state is represented by automated frontend coverage.
+- [x] Meaning never relies on color alone; visible symbols and labels have automated coverage.
+- [x] Persistent visible legend shows a small square swatch for every state, matching its heatmap cell's semantic fill, border, and state treatment; each swatch sits beside a visible non-color symbol and text label.
 - [ ] Every cell has complete accessible label.
 - [ ] Cell actions follow record/date eligibility rules.
 - [ ] Closed and ineligible cells explain why.
@@ -41,7 +41,7 @@ Status: local implementation validation proven 2026-07-24; release acceptance BL
 - [ ] Session restores before module requests.
 - [ ] Each module loads, fails, and retries independently.
 - [ ] Skeletons preserve final layout shape.
-- [ ] Old month data is visibly dimmed during replacement load.
+- [x] Old selected-month heatmap/activity data is visibly dimmed during replacement load while Today, ratio, and upcoming intentions remain stable; covered by deferred-response frontend regression test.
 - [ ] Ratio failure never displays guessed data.
 - [ ] Dashboard copy and dates use shared localization contracts.
 - [ ] Mobile order, keyboard, screen-reader, 200% zoom, and partial-failure tests pass.

@@ -38,9 +38,10 @@ Signed-in users receive a responsive, role-aware app shell and Two Horizons dash
 
 - Build compact monthly grid with independent month selection across fiscal years.
 - Represent approved, Pending assignment, pending, rejected, Not in office, draft, Expired pending, ineligible, Office intention, Home intention, and empty states using color plus symbol.
+- Return the existing Planner intention commitment with each heatmap day so Firm and Flexible yellow treatments remain distinguishable.
 - Keep a persistent visible legend and full accessible label per cell. Every legend item must render a small square swatch with the same semantic fill, border, and state treatment as its corresponding heatmap cell, beside its non-color symbol and text label; color names alone do not meet this requirement.
 - Map cells to valid detail/create/edit actions; closed/ineligible cells explain why.
-- Preserve month grid on empty success and dim old data during month load.
+- Preserve month grid on empty success and dim only selected-month heatmap/activity content during month load; Today, ratio, and upcoming intentions stay stable.
 
 ### 4. Activity modules
 

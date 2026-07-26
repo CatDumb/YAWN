@@ -36,6 +36,14 @@ const preference = {
 const response = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status });
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
 function responseFor(url: string) {
   if (url === "/api/v1/dashboard/today/") {
     return response({
@@ -117,18 +125,25 @@ function responseFor(url: string) {
         action: "create",
         record_id: null,
         intention: "office",
+        commitment: "firm",
       },
       {
         date: "2026-07-28",
         action: "none",
         record_id: null,
         intention: "home",
+        commitment: "flexible",
       },
       {
         date: "2026-07-29",
         action: "none",
         record_id: null,
         ineligible_reason: "Holiday",
+      },
+      {
+        date: "2026-07-30",
+        action: "none",
+        record_id: null,
       },
     ]);
   }
@@ -475,10 +490,105 @@ describe("Phase 3 page contracts", () => {
     expect(
       screen.getByLabelText(/Jul 29.*Ineligible: Holiday/),
     ).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByText("firm office intention")).toBeInTheDocument();
+    expect(screen.getAllByText("firm office intention")).toHaveLength(2);
+    expect(
+      screen.getByRole("heading", { name: "Heatmap legend" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("flexible home intention")).toBeInTheDocument();
+    expect(screen.getByText("empty eligible date")).toBeInTheDocument();
+    expect(screen.getAllByText("✓").length).toBeGreaterThan(1);
+    expect(screen.getAllByText("⌛").length).toBeGreaterThan(1);
     fireEvent.click(screen.getByRole("button", { name: "Previous" }));
     await waitFor(() =>
-      expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining("month=")),
+      expect(
+        apiFetch.mock.calls.some(([url]) => String(url).includes("month=")),
+      ).toBe(true),
+    );
+  });
+
+  it("keeps stable modules visible and ignores superseded month responses", async () => {
+    const activityRequests: Array<ReturnType<typeof deferred<Response>>> = [];
+    const heatmapRequests: Array<ReturnType<typeof deferred<Response>>> = [];
+    let deferMonthly = false;
+    apiFetch.mockImplementation((url: string) => {
+      if (deferMonthly && url.startsWith("/api/v1/dashboard/activity/")) {
+        const request = deferred<Response>();
+        activityRequests.push(request);
+        return request.promise;
+      }
+      if (deferMonthly && url.startsWith("/api/v1/dashboard/heatmap/")) {
+        const request = deferred<Response>();
+        heatmapRequests.push(request);
+        return request.promise;
+      }
+      return Promise.resolve(responseFor(url));
+    });
+    render(<DashboardPage />);
+
+    expect(await screen.findByText("111.12%")).toBeInTheDocument();
+    const stableCalls = apiFetch.mock.calls.filter(([url]) =>
+      ["/api/v1/dashboard/today/", "/api/v1/dashboard/ratio/"].includes(
+        String(url),
+      ),
+    ).length;
+    deferMonthly = true;
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+    await waitFor(() => {
+      expect(activityRequests).toHaveLength(1);
+      expect(heatmapRequests).toHaveLength(1);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => {
+      expect(activityRequests).toHaveLength(2);
+      expect(heatmapRequests).toHaveLength(2);
+    });
+
+    expect(
+      apiFetch.mock.calls.filter(([url]) =>
+        ["/api/v1/dashboard/today/", "/api/v1/dashboard/ratio/"].includes(
+          String(url),
+        ),
+      ),
+    ).toHaveLength(stableCalls);
+    expect(screen.getByText("111.12%")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Loading dashboard module")).toBeNull();
+    const heatmapModule = screen.getByLabelText(
+      "Monthly work-in-office heatmap",
+    ).parentElement;
+    const recentRecordsModule = screen
+      .getByRole("heading", { name: "Recent WIO records" })
+      .closest("section")?.parentElement;
+    const upcomingPlansModule = screen
+      .getByRole("heading", { name: "Upcoming private plans" })
+      .closest("section")?.parentElement;
+    expect(heatmapModule).toHaveAttribute("aria-busy", "true");
+    expect(heatmapModule).toHaveClass("opacity-60");
+    expect(recentRecordsModule).toHaveClass("opacity-60");
+    expect(upcomingPlansModule).not.toHaveClass("opacity-60");
+
+    activityRequests[0].resolve(
+      response({
+        records: [{ id: 10, date: "2025-01-01", state: "approved" }],
+        intentions: [],
+      }),
+    );
+    heatmapRequests[0].resolve(response([]));
+    await Promise.resolve();
+    expect(screen.queryByText("Jan 1, 2025")).not.toBeInTheDocument();
+
+    activityRequests[1].resolve(
+      response({
+        records: [{ id: 11, date: "2026-01-01", state: "approved" }],
+        intentions: [],
+      }),
+    );
+    heatmapRequests[1].resolve(response([]));
+    expect(await screen.findByText("Jan 1, 2026")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText("Monthly work-in-office heatmap").parentElement,
+      ).not.toHaveAttribute("aria-busy"),
     );
   });
 

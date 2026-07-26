@@ -48,10 +48,39 @@ type HeatmapDay = {
   record_id: number | null;
   review_state: string | null;
   intention: string | null;
+  commitment: "firm" | "flexible" | null;
   ineligible_reason: string | null;
   unavailable_reason: string | null;
   action: "open" | "create" | null;
 };
+
+type HeatmapStateKey =
+  | "approved"
+  | "pending"
+  | "pending_assignment"
+  | "rejected"
+  | "not_required"
+  | "draft"
+  | "expired_pending"
+  | "ineligible"
+  | "office_intention"
+  | "home_intention"
+  | "empty";
+
+type HeatmapState = {
+  key: HeatmapStateKey;
+  commitment?: "firm" | "flexible";
+};
+
+type HeatmapVisual = {
+  className: string;
+  label: string;
+  symbol: string;
+};
+
+function joinClassNames(...classes: string[]) {
+  return classes.join(" ");
+}
 
 function formatDate(value: string) {
   const locale =
@@ -84,32 +113,181 @@ function commitmentLabel(value: string, copy: DashboardCopy) {
   return value;
 }
 
+function heatmapState(day: HeatmapDay): HeatmapState {
+  if (day.ineligible_reason) return { key: "ineligible" };
+  if (day.review_state === "approved") return { key: "approved" };
+  if (day.review_state === "pending") return { key: "pending" };
+  if (day.review_state === "pending_assignment")
+    return { key: "pending_assignment" };
+  if (day.review_state === "rejected") return { key: "rejected" };
+  if (day.review_state === "expired_pending") return { key: "expired_pending" };
+  if (day.review_state === "not_required") return { key: "not_required" };
+  if (day.review_state === "draft") return { key: "draft" };
+  if (day.intention === "office")
+    return {
+      key: "office_intention",
+      commitment: day.commitment ?? "flexible",
+    };
+  if (day.intention === "home")
+    return { key: "home_intention", commitment: day.commitment ?? "flexible" };
+  return { key: "empty" };
+}
+
+function heatmapVisual(
+  state: HeatmapState,
+  copy: DashboardCopy,
+): HeatmapVisual {
+  if (state.key === "approved")
+    return {
+      className: joinClassNames(
+        "border-success",
+        "bg-success",
+        "text-success-content",
+      ),
+      label: copy.stateApproved,
+      symbol: "✓",
+    };
+  if (state.key === "pending")
+    return {
+      className: joinClassNames("border-info", "bg-info", "text-info-content"),
+      label: copy.statePending,
+      symbol: "◷",
+    };
+  if (state.key === "pending_assignment")
+    return {
+      className: joinClassNames("border-info", "bg-info", "text-info-content"),
+      label: copy.statePendingAssignment,
+      symbol: "M",
+    };
+  if (state.key === "rejected")
+    return {
+      className: joinClassNames(
+        "border-[var(--color-heatmap-rejected)]",
+        "bg-[var(--color-heatmap-rejected)]",
+        "text-[var(--color-heatmap-rejected-content)]",
+      ),
+      label: copy.stateRejected,
+      symbol: "×",
+    };
+  if (state.key === "not_required")
+    return {
+      className: joinClassNames(
+        "border-base-300",
+        "bg-base-300",
+        "text-base-content",
+      ),
+      label: copy.stateNotRequired,
+      symbol: "×",
+    };
+  if (state.key === "draft")
+    return {
+      className: joinClassNames(
+        "border-base-300",
+        "bg-base-100",
+        "text-base-content",
+      ),
+      label: copy.stateDraft,
+      symbol: "•",
+    };
+  if (state.key === "expired_pending")
+    return {
+      className: joinClassNames(
+        "border-base-300",
+        "bg-base-300",
+        "text-base-content",
+      ),
+      label: copy.stateExpiredPending,
+      symbol: "⌛",
+    };
+  if (state.key === "ineligible")
+    return {
+      className: joinClassNames(
+        "border-base-300",
+        "bg-base-200",
+        "text-base-content/60",
+        "opacity-70",
+      ),
+      label: copy.stateIneligible,
+      symbol: "X",
+    };
+  if (state.key === "office_intention")
+    return {
+      className:
+        state.commitment === "firm"
+          ? joinClassNames(
+              "border-warning",
+              "bg-warning",
+              "text-warning-content",
+            )
+          : joinClassNames(
+              "border-warning",
+              "bg-warning/30",
+              "text-base-content",
+            ),
+      label: formatMessage(copy.planIntention, {
+        commitment: commitmentLabel(state.commitment ?? "flexible", copy),
+        location: copy.locationOffice,
+      }),
+      symbol: "✓",
+    };
+  if (state.key === "home_intention")
+    return {
+      className:
+        state.commitment === "firm"
+          ? joinClassNames(
+              "border-warning",
+              "bg-warning",
+              "text-warning-content",
+            )
+          : joinClassNames(
+              "border-warning",
+              "bg-warning/30",
+              "text-base-content",
+            ),
+      label: formatMessage(copy.planIntention, {
+        commitment: commitmentLabel(state.commitment ?? "flexible", copy),
+        location: copy.locationHome,
+      }),
+      symbol: "×",
+    };
+  return {
+    className: joinClassNames(
+      "border-base-300",
+      "bg-base-100",
+      "text-base-content/70",
+    ),
+    label: copy.stateEmpty,
+    symbol: "○",
+  };
+}
+
 function stateLabel(day: HeatmapDay, copy: DashboardCopy) {
   if (day.ineligible_reason)
     return formatMessage(copy.ineligibleReason, {
       reason: day.ineligible_reason,
     });
-  if (day.unavailable_reason) return day.unavailable_reason;
   if (day.review_state) return reviewStateLabel(day.review_state, copy);
-  if (day.intention)
-    return formatMessage(copy.intentionState, {
-      intention: locationLabel(day.intention, copy),
-    });
-  return copy.emptyState;
+  if (day.intention) return heatmapVisual(heatmapState(day), copy).label;
+  if (day.unavailable_reason) return day.unavailable_reason;
+  return copy.stateEmpty;
 }
 
-function heatmapMarker(day: HeatmapDay) {
-  if (day.ineligible_reason) return "X";
-  if (day.review_state === "approved") return "A";
-  if (day.review_state === "pending") return "P";
-  if (day.review_state === "pending_assignment") return "M";
-  if (day.review_state === "rejected") return "R";
-  if (day.review_state === "expired_pending") return "E";
-  if (day.review_state === "not_required") return "N";
-  if (day.review_state === "draft") return "D";
-  if (day.intention === "office") return "O";
-  if (day.intention === "home") return "H";
-  return "";
+function legendStates(): HeatmapState[] {
+  return [
+    { key: "approved" },
+    { key: "pending" },
+    { key: "pending_assignment" },
+    { key: "rejected" },
+    { key: "not_required" },
+    { key: "draft" },
+    { key: "expired_pending" },
+    { key: "ineligible" },
+    { key: "office_intention", commitment: "firm" },
+    { key: "office_intention", commitment: "flexible" },
+    { key: "home_intention", commitment: "firm" },
+    { key: "home_intention", commitment: "flexible" },
+    { key: "empty" },
+  ];
 }
 
 function shiftMonth(value: string, increment: number) {
@@ -146,7 +324,14 @@ function Module({
         </button>
       </div>
     );
-  return <div className={loading ? "opacity-60" : undefined}>{children}</div>;
+  return (
+    <div
+      aria-busy={loading || undefined}
+      className={loading ? "opacity-60" : undefined}
+    >
+      {children}
+    </div>
+  );
 }
 
 export default function DashboardPage() {
@@ -175,21 +360,25 @@ export default function DashboardPage() {
       setValue: (value: T) => void,
       setError: (value: string | null) => void,
       setLoading: (value: boolean) => void,
+      signal?: AbortSignal,
     ) => {
       setLoading(true);
       setError(null);
       try {
-        const response = await apiFetch(path);
+        const response = signal
+          ? await apiFetch(path, { signal })
+          : await apiFetch(path);
         const payload = (await response.json()) as T & { detail?: string };
         if (!response.ok)
           throw new Error(payload.detail ?? copy.moduleUnavailable);
-        setValue(payload);
+        if (!signal?.aborted) setValue(payload);
       } catch (error) {
+        if (signal?.aborted) return;
         setError(
           error instanceof Error ? error.message : copy.moduleUnavailable,
         );
       } finally {
-        setLoading(false);
+        if (!signal?.aborted) setLoading(false);
       }
     },
     [copy.moduleUnavailable],
@@ -198,54 +387,71 @@ export default function DashboardPage() {
     ? `?year=${selectedMonth.slice(0, 4)}&month=${selectedMonth.slice(5, 7)}`
     : "";
   const loadToday = useCallback(
-    () =>
+    (signal?: AbortSignal) =>
       void request<Today>(
         "/api/v1/dashboard/today/",
         setToday,
         setTodayError,
         setTodayLoading,
+        signal,
       ),
     [request],
   );
   const loadRatio = useCallback(
-    () =>
+    (signal?: AbortSignal) =>
       void request<Ratio>(
         "/api/v1/dashboard/ratio/",
         setRatio,
         setRatioError,
         setRatioLoading,
+        signal,
       ),
     [request],
   );
   const loadActivity = useCallback(
-    () =>
+    (signal?: AbortSignal) =>
       void request<Activity>(
         `/api/v1/dashboard/activity/${monthQuery}`,
         setActivity,
         setActivityError,
         setActivityLoading,
+        signal,
       ),
     [monthQuery, request],
   );
   const loadHeatmap = useCallback(
-    () =>
+    (signal?: AbortSignal) =>
       void request<HeatmapDay[]>(
         `/api/v1/dashboard/heatmap/${monthQuery}`,
         setHeatmap,
         setHeatmapError,
         setHeatmapLoading,
+        signal,
       ),
     [monthQuery, request],
   );
   useEffect(() => {
+    const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      loadToday();
-      loadRatio();
-      loadActivity();
-      loadHeatmap();
+      loadToday(controller.signal);
+      loadRatio(controller.signal);
     }, 0);
-    return () => window.clearTimeout(timer);
-  }, [loadActivity, loadHeatmap, loadRatio, loadToday]);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [loadRatio, loadToday]);
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      loadActivity(controller.signal);
+      loadHeatmap(controller.signal);
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [loadActivity, loadHeatmap]);
 
   const todayHref = today?.record_id
     ? `/work-in-office/${today.record_id}`
@@ -441,6 +647,7 @@ export default function DashboardPage() {
                   aria-label={copy.heatmapLabel}
                 >
                   {heatmap?.map((day) => {
+                    const visual = heatmapVisual(heatmapState(day), copy);
                     const label = formatMessage(copy.heatmapDayLabel, {
                       date: formatDate(day.date),
                       state: stateLabel(day, copy),
@@ -451,7 +658,7 @@ export default function DashboardPage() {
                           {new Date(`${day.date}T00:00:00`).getDate()}
                         </span>
                         <span aria-hidden="true" className="font-bold">
-                          {heatmapMarker(day)}
+                          {visual.symbol}
                         </span>
                       </>
                     );
@@ -464,7 +671,8 @@ export default function DashboardPage() {
                     return href ? (
                       <Link
                         aria-label={label}
-                        className="btn btn-sm min-h-11"
+                        className={`btn btn-sm min-h-11 border ${visual.className}`}
+                        data-heatmap-state={heatmapState(day).key}
                         href={href}
                         key={day.date}
                       >
@@ -474,7 +682,8 @@ export default function DashboardPage() {
                       <span
                         aria-disabled="true"
                         aria-label={label}
-                        className="btn btn-sm min-h-11 cursor-default"
+                        className={`btn btn-sm min-h-11 cursor-default border ${visual.className}`}
+                        data-heatmap-state={heatmapState(day).key}
                         key={day.date}
                         title={stateLabel(day, copy)}
                       >
@@ -483,9 +692,35 @@ export default function DashboardPage() {
                     );
                   })}
                 </div>
-                <p className="text-base-content/70 mt-3 text-sm">
-                  {copy.legend}
-                </p>
+                <section aria-labelledby="heatmap-legend" className="mt-4">
+                  <h3 className="text-sm font-semibold" id="heatmap-legend">
+                    {copy.legendTitle}
+                  </h3>
+                  <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm">
+                    {legendStates().map((state) => {
+                      const visual = heatmapVisual(state, copy);
+                      return (
+                        <li
+                          className="flex items-center gap-1.5"
+                          key={`${state.key}-${state.commitment ?? ""}`}
+                        >
+                          <span
+                            aria-hidden="true"
+                            className={`size-4 shrink-0 rounded-sm border ${visual.className}`}
+                            data-heatmap-state={state.key}
+                          />
+                          <span
+                            aria-hidden="true"
+                            className="w-3 text-center font-bold"
+                          >
+                            {visual.symbol}
+                          </span>
+                          <span>{visual.label}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
                 <p className="text-base-content/70 mt-1 text-sm">
                   {copy.nonColorHelp}
                 </p>
@@ -493,15 +728,16 @@ export default function DashboardPage() {
             </div>
           </section>
 
-          <Module
-            error={activityError}
-            loading={activityLoading}
-            loadingLabel={copy.loadingModule}
-            retry={loadActivity}
-            retryLabel={common.retry}
-          >
-            <section className="grid gap-5 lg:grid-cols-2">
-              <div className="card bg-base-200 shadow-sm">
+          <section className="grid gap-5 lg:grid-cols-2">
+            <Module
+              error={activityError}
+              loading={activityLoading}
+              loadingLabel={copy.loadingModule}
+              preserveContent={Boolean(activity)}
+              retry={loadActivity}
+              retryLabel={common.retry}
+            >
+              <section className="card bg-base-200 shadow-sm">
                 <div className="card-body">
                   <h2 className="card-title">{copy.recentRecords}</h2>
                   {activity?.records.length ? (
@@ -521,8 +757,17 @@ export default function DashboardPage() {
                     </p>
                   )}
                 </div>
-              </div>
-              <div className="card bg-base-200 shadow-sm">
+              </section>
+            </Module>
+            <Module
+              error={activity ? null : activityError}
+              loading={activity ? false : activityLoading}
+              loadingLabel={copy.loadingModule}
+              preserveContent={Boolean(activity)}
+              retry={loadActivity}
+              retryLabel={common.retry}
+            >
+              <section className="card bg-base-200 shadow-sm">
                 <div className="card-body">
                   <h2 className="card-title">{copy.upcomingPlans}</h2>
                   {activity?.intentions.length ? (
@@ -548,9 +793,9 @@ export default function DashboardPage() {
                     </p>
                   )}
                 </div>
-              </div>
-            </section>
-          </Module>
+              </section>
+            </Module>
+          </section>
         </section>
       </main>
     </AppShell>

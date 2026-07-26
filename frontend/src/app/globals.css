@@ -31,6 +31,8 @@
   --color-warning-content: oklch(24% 0.05 80);
   --color-error: oklch(56% 0.19 13.428);
   --color-error-content: oklch(98% 0.01 13.428);
+  --color-heatmap-rejected: oklch(68% 0.18 55);
+  --color-heatmap-rejected-content: oklch(24% 0.05 55);
   --radius-selector: 0.5rem;
   --radius-field: 0.25rem;
   --radius-box: 0.5rem;
@@ -75,6 +77,8 @@ html[data-reduced-motion="reduce"] *::after {
   --color-warning-content: oklch(25% 0.04 80);
   --color-error: oklch(71% 0.16 13.428);
   --color-error-content: oklch(22% 0.03 13.428);
+  --color-heatmap-rejected: oklch(75% 0.15 55);
+  --color-heatmap-rejected-content: oklch(24% 0.05 55);
   --radius-selector: 0.5rem;
   --radius-field: 0.25rem;
   --radius-box: 0.5rem;

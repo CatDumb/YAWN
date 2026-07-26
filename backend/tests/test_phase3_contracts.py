@@ -1921,6 +1921,7 @@ def test_dashboard_modules_keep_fiscal_empty_state_and_month_independent(client,
         "record_id",
         "review_state",
         "intention",
+        "commitment",
         "ineligible_reason",
         "unavailable_reason",
         "action",
@@ -1933,6 +1934,25 @@ def test_dashboard_modules_keep_fiscal_empty_state_and_month_independent(client,
         "available": False,
         "message": "No active fiscal period covers today.",
     }
+
+
+def test_dashboard_heatmap_exposes_intention_commitment(client, db):
+    company = Company.objects.create(name="Yawn", slug="yawn")
+    employee = membership(email="employee@example.com", company=company)
+    WorkIntentionOccurrence.objects.create(
+        employee=employee,
+        date=date(2026, 7, 20),
+        location="office",
+        commitment="firm",
+    )
+    client.force_login(employee.user)
+
+    response = client.get("/api/v1/dashboard/heatmap/?year=2026&month=7")
+
+    assert response.status_code == 200
+    days = {item["date"]: item for item in response.json()}
+    assert days["2026-07-20"]["commitment"] == "firm"
+    assert days["2026-07-21"]["commitment"] is None
 
 
 def test_target_size_heatmap_uses_bulk_eligibility_without_per_day_queries(client, db):
