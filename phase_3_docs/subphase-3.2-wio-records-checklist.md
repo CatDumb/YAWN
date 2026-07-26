@@ -56,3 +56,5 @@ Environment: local Windows browser/test stack; operator: Codex; artifacts: Playw
 - **PROVEN locally:** WIO lifecycle, version/conflict, correction, ownership, audit, and duplicate-path automation.
 - **OPEN:** reconciliation of original 3.2 items against 3.2R evidence.
 - **BLOCKED:** RC browser accessibility/manual form-error and announcement evidence, migration rehearsal/rollback evidence, and named acceptance owner. Boxes remain unchecked because local results are not release acceptance.
+
+Current coverage note (2026-07-26): the standalone employee WIO lifecycle Playwright spec was deliberately removed. Its historical local evidence remains above, but there is no longer browser automation for WIO submission, rejection correction, drafts, or duplicate-date behavior.

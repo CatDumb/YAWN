@@ -1,31 +1,33 @@
 # Phase 3 Overall Plan
 
-Status: reconciled local-validation baseline as of 2026-07-24. The current worktree contains implementations for Subphases 3.0-3.7 and hardening/release support for 3.8. Current local backend, frontend, migration, schema, and two-browser-journey gates pass; every subphase remains unaccepted because required release-candidate, manual accessibility/operations, named-owner, and product/engineering sign-off evidence is unavailable. Subphase 3.2R remains a mandatory acceptance gate before 3.3 may be released.
+Status: implementation-aware planning baseline as of 2026-07-23. Subphases 3.0-3.2 have working code and automated coverage, but the implementation audit found acceptance gaps. They are therefore **implemented, acceptance incomplete**, not complete. Subphase 3.2R is a mandatory remediation gate before Subphase 3.3. Subphases 3.3-3.8 remain unimplemented and may be shaped by this document.
 
 ## 0. Implementation baseline and status rules
 
 ### Verified baseline
 
-- Full backend suite: 114 tests passed locally with 83.43% coverage on 2026-07-24.
-- Frontend localization, lint, standard typecheck, formatting, production build, and unit coverage gates passed locally on 2026-07-24: 37 tests; 78.54% statements, 70.11% branches, 73.96% functions, and 80.57% lines. This supersedes the older report of three failing WIO UI tests; the newer release-evidence result is authoritative.
-- Local Ruff check and formatting gates passed on 2026-07-24 using `--no-cache`; application control only prevents Ruff from creating its normal cache, not from validating the source.
-- Required release-candidate lint, type, build, browser, migration, schema, accessibility, and operations evidence is still incomplete.
+- Full backend suite: 65 tests passed with 80.66% measured coverage.
+- Full frontend suite: 33 tests passed.
+- Backend Ruff and frontend ESLint passed.
+- TypeScript type checking passed.
+- Django reported no migration drift under test settings.
+- Only the real-browser authentication journey remains. WIO lifecycle browser coverage was deliberately removed on 2026-07-26; the audit did not execute the remaining journey against a live release-equivalent stack.
 
 Green tests prove the implemented paths they cover; they do not override missing acceptance behavior.
 
-### Mandatory remediation acceptance gate
+### Mandatory remediation gate
 
-[Subphase 3.2R](subphase-3.2r-baseline-remediation-gate-plan.md) implements repairs for audited 3.0-3.2 gaps. Its checklist is the acceptance authority for the repaired baseline and must close before manager approval is released.
+[Subphase 3.2R](subphase-3.2r-baseline-remediation-gate-plan.md) repairs the audited 3.0-3.2 gaps before manager approval work begins. Its checklist is the acceptance authority for the repaired baseline.
 
-The remediation acceptance scope includes:
+The principal gaps are:
 
-- Live-session-expiry browser coverage and protected-session behavior.
-- Exact fiscal cutoff, persisted audited lifecycle coordination, and retry-safe finalization.
-- Effective-dated policy, base-location, manager-assignment, and finalized-calculation history.
-- Raw-denominator ratio rounding parity across every factual consumer.
-- WIO version conflicts, rejected-correction deadlines, audited older-date overrides, and immutable approved records.
-- Deterministic approval-owner snapshots and Pending assignment handling.
-- WIO index, status feedback, audit detail, company-time behavior, and accessible UI journeys.
+- Authentication browser coverage omits live session expiry.
+- Fiscal cutoff is stored as a date instead of an exact timestamp, and lifecycle state is not advanced through one persisted, audited coordinator.
+- Effective-dated policy coverage, base-location history, and finalized calculation history are not yet strong enough for reproducible reports.
+- The ratio implementation and this plan previously disagreed about denominator rounding.
+- WIO stale-write protection is optional, rejected corrections can be blocked by the original submission window, and the audited older-date override is absent.
+- Existing manager assignments are not effective-dated, and submitted claims have no deterministic approval-owner snapshot.
+- Current WIO index, status feedback, audit detail, and company-date behavior do not yet meet the full UI contract.
 
 ### Status rules
 
@@ -191,7 +193,7 @@ The heatmap is a compact, adjustable-month grid inspired by GitHub contribution 
 ### Legend and states
 
 - Green + check: approved WIO.
-- Aqua + link: WIO waiting for manager assignment.
+- Aqua + `M`: WIO waiting for manager assignment.
 - Blue + clock: WIO pending approval.
 - Orange + cross: rejected WIO.
 - Gray + hourglass: expired pending WIO.
@@ -201,9 +203,9 @@ The heatmap is a compact, adjustable-month grid inspired by GitHub contribution 
 - Yellow + check: future Office intention.
 - Yellow + cross: future Not-in-office intention.
 - Stronger/lighter yellow: Firm/Flexible intention.
-- Empty: eligible date with no record or intention.
+- Empty + open circle: eligible date with no record or intention.
 
-A persistent visible legend is mandatory. Each legend item pairs its text label and non-color symbol with a small square swatch that uses the same semantic fill, border, and state treatment as its heatmap cells; the legend must demonstrate the visual mapping rather than describe colors in text alone. The swatch is decorative, while the adjacent symbol and label remain visible and accessible. Every cell also needs a complete accessible label. Tooltip content may supplement but never replace visible or assistive meaning.
+A persistent visible legend is mandatory. Each legend item pairs its text label and non-color symbol with a small square swatch that uses the same semantic fill, border, and state treatment as its heatmap cells; the legend must demonstrate the visual mapping rather than describe colors in text alone. The swatch is decorative, while the adjacent symbol and label remain visible and accessible. Office and Home intention cells include their Firm/Flexible commitment so the yellow treatment can be stronger or lighter. Every cell also needs a complete accessible label. Tooltip content may supplement but never replace visible or assistive meaning.
 
 ### Cell actions
 
@@ -294,7 +296,6 @@ Do not use a success modal or celebration page.
 ### Phase 3 scope
 
 - Pending office claims for assigned employees only.
-- Pending assignment claims never enter a manager queue; HR/admin resolves them through the scoped exception workflow.
 - Oldest submission first.
 - Maximum design target: 100 assigned employees per manager.
 - Server pagination: 50 claims per page.
@@ -324,7 +325,6 @@ After approval, show a 10-second `Undo approval` action. Undo writes a separate 
 - During reconciliation, prior-period unresolved claims sort first and remain actionable.
 - Ratio remains provisional.
 - At final cutoff, unresolved claims contribute zero and become `Expired pending`.
-- Claim expiration is one idempotent step in coordinated finalization; the period does not become Final until expiration, ledger freeze, and Planner purge all succeed.
 - HR/admin may reopen/correct only with an audit reason.
 
 ### Manager awareness
@@ -348,23 +348,17 @@ Django Admin manages explicit Fiscal Period records:
 - Status: Upcoming, Active, Reconciliation, Final.
 - Periods cannot overlap.
 - Only one period may be Active.
-- Dates determine when transitions become due, while persisted status remains the operational source of truth.
-- An idempotent coordinator writes and audits `Upcoming` to `Active`, `Active` to `Reconciliation`, and `Reconciliation` to `Final`.
-- Finalization succeeds only after its registered expiration, ledger-freeze, and privacy-purge steps complete; retries never duplicate effects.
-- Audited admin reopen is exceptional and creates a new correction revision rather than silently replacing finalized history.
+- Status normally derives from dates; audited admin reopen is exceptional.
 - Admin may clone the previous period as a reviewed starting point.
 
-Default reconciliation window ends at `23:59:59.999999 Asia/Ho_Chi_Minh` on the fourteenth calendar day after fiscal year-end. Admin may configure another exact timezone-aware instant. Normal WIO submission deadlines do not extend; pending reviews and audited corrections may resolve during reconciliation. The result locks and becomes final at cutoff.
+Default reconciliation window is 14 days after fiscal year-end. Normal WIO submission deadlines do not extend; pending reviews and audited corrections may resolve during reconciliation. The result locks and becomes final at cutoff.
 
 ### Formula
 
 - Eligible workdays are Monday–Friday minus public holidays, approved leave, and approved remote-work exceptions.
 - Each eligible day contributes its effective expected-office fraction.
-- Sum expected fractions across the requested range without applying an integer ceiling.
+- Sum fractions across the requested calculation range and round up once.
 - An approved whole-day office claim contributes one actual day.
-- Official ratio is `approved whole days / raw sum of expected fractions`.
-- Display the expected sum to two decimal places and round the percentage upward to two percentage decimal places. Example: `1 approved / 1.50 expected = 66.67%`.
-- Summary, ledger, Dashboard, projection, finalized snapshot, and CSV must use this same formula.
 - No half-day credit in MVP.
 - Zero expected days displays `N/A`.
 - Submitted records snapshot relevant assignment/rule versions for reproducibility.
@@ -386,19 +380,10 @@ Default reconciliation window ends at `23:59:59.999999 Asia/Ho_Chi_Minh` on the 
 - Historical used versions cannot be edited or deleted.
 - Future unused versions may change.
 
-Employee base location, project base location, employee project assignment, manager assignment, and ratio rules use effective-dated versions where they affect historical meaning. Once a version can influence an Active, Reconciliation, or Final period, corrections append a new audited version; they do not mutate history.
-
-### Historical calculation revisions
-
-- Active and Reconciliation periods recalculate from immutable effective-dated inputs.
-- Finalization freezes a complete per-employee, per-day ledger plus summary and input-version references.
-- Historical Reports and CSV read the frozen revision.
-- Audited reopen/correction produces a new revision linked to the prior result. Prior revisions remain inspectable by HR/admin and are never silently overwritten.
-
 ### Dashboard ratio
 
 - Primary calculation: fiscal-year-to-date through today.
-- Show uncapped percentage and equation, for example `6 approved / 5.00 expected`.
+- Show uncapped percentage and equation, for example `6 approved / 5 expected`.
 - Visual goal progress caps at 100%; excess appears as text such as `+1 day above expectation`.
 - Do not label an employee generally compliant/non-compliant.
 - While active, compare approved days with expected days accrued through today.
@@ -406,7 +391,7 @@ Employee base location, project base location, employee project assignment, mana
 - Use amber warning while Active/Reconciliation; use error treatment only for a locked final miss.
 - Do not predict unknown outcomes or count intentions as approved credit.
 
-Monthly views do not present standalone compliance verdicts. They show activity and raw expected fractions. Raw expected fractions are additive across adjacent ranges; independently displayed percentages may differ because each percentage rounds upward to two decimal places.
+Monthly views do not present standalone compliance verdicts. They show activity and raw expected fractions. Custom ranges may show a clearly labeled range calculation, with a warning that separately rounded ranges are not additive.
 
 ## 11. Explainable reports
 
@@ -504,8 +489,8 @@ Materialize one private occurrence row per eligible date, optionally linked to a
 
 Projection is presented as **plan coverage**, never predicted approval:
 
-- Verified ratio remains approved days divided by the raw accrued expected-fraction sum.
-- Fiscal projection uses currently configured full-period versioned rules, assignments, holidays, leave, and exceptions without integer-ceiling the expected sum.
+- Verified ratio remains approved days divided by accrued expected days.
+- Fiscal projection uses currently configured full-period rules, assignments, holidays, leave, and exceptions.
 - Firm Office intentions form minimum planned office count.
 - Flexible Office intentions extend optimistic planned count.
 - Home intentions add no office credit.
@@ -621,10 +606,8 @@ Target WCAG 2.2 AA.
 - Database constraint enforces one current WIO record per employee/date.
 - Database constraint enforces one intention per employee/date.
 - Effective-date ranges reject invalid overlaps.
-- At most one approval manager is effective per employee/date.
-- Production permits exactly one active company and one membership per user in it.
 - Mutable WIO and intention resources carry a version.
-- Version is required on every mutable update and delete; omission or mismatch returns `409 Conflict`.
+- Stale updates return `409 Conflict`.
 - UI preserves unsaved input, reloads latest state, and explains the conflict.
 - Manager action succeeds only while claim remains Pending.
 - Bulk intention writes are atomic; never partially save a requested operation.
@@ -638,7 +621,7 @@ Target WCAG 2.2 AA.
 - Events show actor role, timestamp, action, and reason where applicable.
 - Never expose security metadata, private Planner content, or unrelated account data.
 
-WIO audit includes creation, draft save/delete, submission, Pending assignment resolution, Not-in-office correction, rejection, resubmission, approval, approval reversal, reassignment, HR override, expiration, and final-period correction.
+WIO audit includes creation, draft save/delete, submission, Not-in-office correction, rejection, resubmission, approval, approval reversal, reassignment, HR override, and final-period correction.
 
 ## 19. Suggested backend modules and records
 
@@ -654,12 +637,10 @@ Keep backend as existing Django modular monolith. Suggested records:
 - `RemoteWorkException`
 - `WorkInOfficeRecord`
 - `ApprovalDecision` or explicit approval audit events
-- `FiscalLedgerRevision`
-- `FiscalLedgerDay`
 - `WorkIntentionSeries`
 - `WorkIntentionOccurrence`
 - `UserPreference`
-- Effective-dated `ManagerAssignment`
+- Existing effective-dated `ManagerAssignment`
 - Existing `AuditEvent`
 
 Keep ratio calculation in a pure, testable domain service. The service should accept period/range, employee policy history, exclusions, WIO approvals, and an as-of date, then return totals plus the per-day explanation ledger. Projection should be a separate service layered over verified calculation plus future intentions.
@@ -703,34 +684,21 @@ Finish Phase 2 identity hardening and protected-route browser contract.
 - Personal index/detail/create APIs and pages.
 - Audit timeline.
 
-### Slice 2R — baseline remediation gate
+### Slice 3 — approval slice
 
-- Complete missing authentication browser evidence.
-- Enforce the single-active-company invariant.
-- Correct fiscal lifecycle, cutoff precision, versioned inputs, ratio semantics, and historical reproducibility foundations.
-- Repair WIO correction deadlines, required optimistic concurrency, audited overrides, audit detail, company-date behavior, filters, and post-save feedback.
-- Make manager assignments effective-dated and introduce deterministic Pending assignment handling.
-- Do not begin Slice 3 until the remediation checklist passes.
-
-### Slice 3 — approval slice and early app shell
-
-- Establish the shared protected app frame, route metadata, and reusable loading/error boundaries before adding more feature pages.
 - Assignment-scoped pending queue.
 - Inline approve, reject reason, 10-second undo.
-- Resolve and monitor Pending assignment claims.
 - Rejection correction/resubmission.
 - Expired-pending and reconciliation behavior.
-- Introduce translation-key, locale-aware date, and localized rejection-email contracts.
+- Rejection email.
 
 ### Slice 4 — ratio and reports
 
 - Fiscal-year-to-date summary.
 - Complete explainable ledger.
-- Finalized ledger revisions and correction lineage.
 - Custom in-period ranges.
 - Personal CSV export.
 - Final/provisional states.
-- Localized CSV contract built on the early localization infrastructure.
 
 ### Slice 5 — private Planner
 
@@ -742,8 +710,7 @@ Finish Phase 2 identity hardening and protected-route browser contract.
 
 ### Slice 6 — app shell and dashboard
 
-- Complete and polish the shared shell established in Slice 3.
-- Sidebar, mobile drawer, profile bar, and role-aware navigation.
+- Sidebar, mobile drawer, profile bar, role-aware navigation.
 - Two Horizons dashboard.
 - Monthly heatmap and accessible legend.
 - Recent WIO and upcoming intentions.
@@ -753,7 +720,7 @@ Finish Phase 2 identity hardening and protected-route browser contract.
 
 - Settings and Profile.
 - System/Light/Dark theme.
-- Complete English/Vietnamese catalogs and enforce translation completeness for contracts introduced in Slices 3-6.
+- English/Vietnamese localization.
 - Pre-auth theme/language controls.
 - Reduced-motion and Planner defaults.
 
@@ -767,7 +734,7 @@ Finish Phase 2 identity hardening and protected-route browser contract.
 - Full end-to-end journeys.
 - Observability for WIO, approval, ratio, export, and projection failures without sensitive content.
 
-The protected shell foundation and localization infrastructure deliberately start in Slice 3. Dashboard composition and full localization acceptance remain in Slices 6 and 7. Feature release follows the dependency order above.
+Frontend shell and localization infrastructure may start earlier in parallel once contracts stabilize, but feature release should follow dependency order above.
 
 ## 22. Required end-to-end acceptance journeys
 
@@ -785,13 +752,6 @@ The protected shell foundation and localization infrastructure deliberately star
 12. English/Vietnamese and System/Light/Dark choices persist before and after sign-in.
 13. Unauthorized employee, manager, and admin access remains blocked at route and API layers.
 14. Heatmap remains understandable by keyboard and screen reader without color.
-15. Live session expiry redirects every protected surface without protected-data flash.
-16. Fractional expectation uses the raw denominator and upward two-decimal percentage consistently across summary, ledger, Dashboard, frozen revision, and CSV.
-17. Rejected correction remains available through its correction deadline even when the original work date is outside the normal submission window.
-18. Missing or ambiguous manager coverage preserves the claim as Pending assignment; audited assignment moves it to the correct manager queue.
-19. Finalization retry expires unresolved claims, freezes one ledger revision, and purges Planner content exactly once.
-20. Historical base-location, assignment, and rule changes cannot alter a frozen result; audited correction creates a linked revision.
-21. Production rejects a second active company and ambiguous active membership scope.
 
 ## 23. Roadmap amendments
 
@@ -854,7 +814,5 @@ The following may be resolved during technical design without changing product i
 - Exact semantic color token values, provided accepted meanings and WCAG contrast remain intact.
 - CSV filename format and low-level encoding compatibility.
 - Internal class/model names during any staged migration away from `WorkLog` terminology.
-
-The official ratio denominator, percentage rounding, fiscal state transitions, cutoff instant, finalized revision behavior, Pending assignment workflow, manager cardinality, and single-company invariant are product decisions, not builder-owned details.
 
 Any change to user-visible workflow, fiscal calculation, privacy, approval scope, intention retention, or phase ordering requires product confirmation and an update to this document.
