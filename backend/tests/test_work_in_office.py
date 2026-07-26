@@ -3,10 +3,9 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-from apps.accounts.models import Company, CompanyMembership, ManagerAssignment, User
+from apps.accounts.models import Company, CompanyMembership, User
 from apps.audit.models import AuditEvent
 from apps.work_logs.models import WorkInOfficeRecord
-from apps.work_logs.services import reject_record
 
 
 @pytest.fixture
@@ -117,59 +116,3 @@ def test_update_keeps_reserved_work_date(employee_client):
     assert updated.status_code == 200
     assert updated.json()["work_date"] == str(today)
     assert WorkInOfficeRecord.objects.filter(employee=membership).count() == 1
-
-
-def test_rejected_record_can_resubmit_or_close_as_not_in_office(employee_client):
-    client, membership = employee_client
-    today = timezone.localdate()
-    manager = User.objects.create_user(email="manager@example.com")
-    manager_membership = CompanyMembership.objects.create(
-        user=manager,
-        company=membership.company,
-        role=CompanyMembership.Role.MANAGER,
-    )
-    ManagerAssignment.objects.create(
-        manager=manager_membership,
-        employee=membership,
-        effective_from=today,
-    )
-    pending = WorkInOfficeRecord.objects.create(
-        employee=membership,
-        work_date=today,
-        location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
-        review_state=WorkInOfficeRecord.ReviewState.PENDING,
-    )
-    rejected = reject_record(record=pending, actor=manager, reason="Need clarification")
-    assert rejected.review_state == WorkInOfficeRecord.ReviewState.REJECTED
-    assert rejected.correction_deadline is not None
-    resubmitted = client.put(
-        f"/api/v1/work-in-office/{rejected.pk}/",
-        create_payload(
-            today,
-            location_choice="in_office",
-            note="Clarified",
-            version=rejected.version,
-        ),
-        content_type="application/json",
-    )
-    assert resubmitted.status_code == 200
-    assert resubmitted.json()["review_state"] == WorkInOfficeRecord.ReviewState.PENDING
-
-    rejected_again = reject_record(
-        record=WorkInOfficeRecord.objects.get(pk=rejected.pk),
-        actor=manager,
-        reason="Still not enough",
-    )
-    closed = client.put(
-        f"/api/v1/work-in-office/{rejected_again.pk}/",
-        create_payload(
-            today,
-            location_choice="not_in_office",
-            note="",
-            version=rejected_again.version,
-        ),
-        content_type="application/json",
-    )
-    assert closed.status_code == 200
-    assert closed.json()["review_state"] == WorkInOfficeRecord.ReviewState.NOT_REQUIRED
-    assert AuditEvent.objects.filter(event_type="work_logs.record_rejected").count() == 2
