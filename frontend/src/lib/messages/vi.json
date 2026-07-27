@@ -16,7 +16,10 @@
     "sessionError": "Kh\u00f4ng th\u1ec3 kh\u00f4i ph\u1ee5c phi\u00ean. H\u00e3y th\u1eed l\u1ea1i.",
     "logoutError": "Kh\u00f4ng th\u1ec3 \u0111\u0103ng xu\u1ea5t. H\u00e3y th\u1eed l\u1ea1i.",
     "serviceError": "Kh\u00f4ng th\u1ec3 k\u1ebft n\u1ed1i d\u1ecbch v\u1ee5. H\u00e3y th\u1eed l\u1ea1i.",
-    "approvalPendingLabel": "Ph\u00ea duy\u1ec7t: {count} y\u00eau c\u1ea7u \u0111ang ch\u1edd"
+    "approvalPendingLabel": "Ph\u00ea duy\u1ec7t: {count} y\u00eau c\u1ea7u \u0111ang ch\u1edd",
+    "collapseNavigation": "Thu g\u1ecdn \u0111i\u1ec1u h\u01b0\u1edbng",
+    "expandNavigation": "M\u1edf r\u1ed9ng \u0111i\u1ec1u h\u01b0\u1edbng",
+    "accountMenuLabel": "Tr\u00ecnh \u0111\u01a1n t\u00e0i kho\u1ea3n c\u1ee7a {name}"
   },
   "common": {
     "save": "L\u01b0u",

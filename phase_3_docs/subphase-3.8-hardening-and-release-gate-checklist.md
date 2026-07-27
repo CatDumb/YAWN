@@ -38,7 +38,7 @@ Status: local hardening validation proven 2026-07-24; release not approved. Ever
 
 ## Resilience and operations
 
-- [ ] Dashboard partial failures and retries stay isolated.
+- [ ] Dashboard partial failures and retries stay isolated; unexpected frontend failures show localized fallback copy and retain private-free Sentry diagnostics.
 - [ ] Timeouts, email/export failures, stale conflicts, purge, and cutoff recover safely.
 - [ ] Fault-injected finalization retries expiration, ledger freeze, and purge exactly once before writing Final.
 - [ ] Target-size queue, heatmap, ledger, export, and projection performance is acceptable.

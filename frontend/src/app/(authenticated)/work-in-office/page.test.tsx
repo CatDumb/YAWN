@@ -6,10 +6,7 @@ const { listWorkInOffice, searchParams } = vi.hoisted(() => ({
   searchParams: new URLSearchParams("saved=2"),
 }));
 vi.mock("next/navigation", () => ({ useSearchParams: () => searchParams }));
-vi.mock("../../features/work-in-office/api", () => ({ listWorkInOffice }));
-vi.mock("../../features/app-shell/app-shell", () => ({
-  AppShell: ({ children }: { children: React.ReactNode }) => children,
-}));
+vi.mock("@/features/work-in-office/api", () => ({ listWorkInOffice }));
 
 import WorkInOfficePage from "./page";
 

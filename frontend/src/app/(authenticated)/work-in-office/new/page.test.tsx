@@ -5,15 +5,12 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
 }));
-vi.mock("../../../features/work-in-office/api", () => ({
+vi.mock("@/features/work-in-office/api", () => ({
   getWorkInOfficeMetadata: vi.fn().mockResolvedValue({
     company_date: "2026-07-23",
     timezone: "Asia/Ho_Chi_Minh",
   }),
   saveWorkInOffice: vi.fn(),
-}));
-vi.mock("../../../features/app-shell/app-shell", () => ({
-  AppShell: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 import NewWorkInOfficePage from "./page";

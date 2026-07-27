@@ -52,6 +52,17 @@ html[data-reduced-motion="reduce"] *::after {
   transition-duration: 0.01ms !important;
 }
 
+@media (min-width: 64rem) {
+  html[data-navigation="collapsed"] .app-navigation-rail {
+    padding: 0.5rem !important;
+    width: 5rem !important;
+  }
+
+  html[data-navigation="collapsed"] .app-navigation-expanded-only {
+    display: none;
+  }
+}
+
 @plugin "daisyui/theme" {
   name: "yawn-dark";
   default: false;

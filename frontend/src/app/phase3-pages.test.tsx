@@ -5,22 +5,18 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }));
 
-vi.mock("../lib/api", () => ({ apiFetch }));
-vi.mock("../features/app-shell/app-shell", () => ({
-  AppShell: ({ children }: { children: ReactNode }) => children,
-}));
+vi.mock("@/lib/api", () => ({ apiFetch }));
 
-import ApprovalsPage from "./approvals/page";
-import DashboardPage from "./dashboard/page";
-import PlannerPage from "./planner/page";
-import ProfilePage from "./profile/page";
-import ReportsPage from "./reports/page";
-import SettingsPage from "./settings/page";
+import ApprovalsPage from "./(authenticated)/approvals/page";
+import DashboardPage from "./(authenticated)/dashboard/page";
+import PlannerPage from "./(authenticated)/planner/page";
+import ProfilePage from "./(authenticated)/profile/page";
+import ReportsPage from "./(authenticated)/reports/page";
+import SettingsPage from "./(authenticated)/settings/page";
 
 const preference = {
   theme: "light",
@@ -541,6 +537,50 @@ describe("Phase 3 page contracts", () => {
         apiFetch.mock.calls.some(([url]) => String(url).includes("month=")),
       ).toBe(true),
     );
+  });
+
+  it("retries each dashboard request without passing click events as signals", async () => {
+    const failedPaths = new Set([
+      "/api/v1/dashboard/today/",
+      "/api/v1/dashboard/ratio/",
+      "/api/v1/dashboard/activity/?year=2026&month=07",
+      "/api/v1/dashboard/heatmap/?year=2026&month=07",
+    ]);
+    const retryCalls: Array<[string, RequestInit | undefined]> = [];
+    apiFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.signal && typeof init.signal.aborted !== "boolean")
+        return Promise.reject(
+          new TypeError("Failed to convert value to AbortSignal"),
+        );
+      if (failedPaths.delete(url))
+        return Promise.resolve(
+          response({ detail: "Service unavailable" }, 503),
+        );
+      if (url.startsWith("/api/v1/dashboard/")) retryCalls.push([url, init]);
+      return Promise.resolve(responseFor(url));
+    });
+
+    render(<DashboardPage />);
+
+    const retryButtons = await screen.findAllByRole("button", {
+      name: "Retry",
+    });
+    expect(retryButtons).toHaveLength(5);
+    retryButtons.forEach((button) => fireEvent.click(button));
+
+    await waitFor(() =>
+      expect(screen.queryByText("Service unavailable")).toBeNull(),
+    );
+    expect(screen.queryByText(/AbortSignal/)).toBeNull();
+    expect(retryCalls.map(([url]) => url)).toEqual(
+      expect.arrayContaining([
+        "/api/v1/dashboard/today/",
+        "/api/v1/dashboard/ratio/",
+        "/api/v1/dashboard/activity/?year=2026&month=07",
+        "/api/v1/dashboard/heatmap/?year=2026&month=07",
+      ]),
+    );
+    retryCalls.forEach(([, init]) => expect(init?.signal).toBeUndefined());
   });
 
   it("localizes Monday-first heatmap headings in Vietnamese", async () => {

@@ -37,13 +37,7 @@ for (const key of englishKeys) {
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const sourceDirectory = join(scriptDirectory, "..", "src");
 const phase3Roots = [
-  "app/approvals",
-  "app/dashboard",
-  "app/planner",
-  "app/profile",
-  "app/reports",
-  "app/settings",
-  "app/work-in-office",
+  "app/(authenticated)",
   "features/app-shell",
   "features/work-in-office",
 ].map((part) => join(sourceDirectory, part));

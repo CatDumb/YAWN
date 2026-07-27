@@ -4,16 +4,19 @@ Status: local implementation validation proven 2026-07-24; release acceptance BL
 
 ## App shell
 
-- [ ] Existing Subphase 3.3 shell is extended rather than duplicated.
-- [ ] Desktop sidebar and mobile modal drawer work.
+- [x] Existing Subphase 3.3 shell is extended rather than duplicated; one authenticated route layout owns all protected pages, covered by local unit and Playwright regression on 2026-07-27.
+- [x] Desktop sidebar and mobile modal drawer work; focused Playwright regression passed 2026-07-27 (local evidence only).
+- [ ] Desktop drawer toggles between 18rem expanded and 5rem icon-only modes, restores local choice, preserves accessible navigation names/tooltips/active state, and leaves mobile drawer expanded.
 - [x] Navigation-item hover and keyboard-focus targets fill the sidebar's padded inner lane; focused Playwright regression passed 2026-07-27 (local evidence only).
 - [ ] Navigation order matches Phase 3 information architecture.
 - [ ] Approvals appears only for eligible managers.
 - [ ] Administration appears only for HR/admin and opens Django Admin.
 - [ ] Route and API authorization remains independent of navigation visibility.
 - [ ] User bar shows initials, full name, role, company, Profile, and Log out.
+- [x] Account avatar opens an upward Profile/Log out menu in expanded and collapsed desktop modes; Profile selection closes transient menu state, covered by local Playwright regression on 2026-07-27.
 - [ ] Long names retain full accessible label.
-- [ ] WIO, Approvals, Reports, Planner, and Dashboard share one session/navigation boundary.
+- [x] WIO, Approvals, Reports, Planner, and Dashboard share one session/navigation boundary; authenticated navigation retains drawer DOM and makes one session request, covered by local unit and Playwright regression on 2026-07-27.
+- [x] Authenticated pages share one left-aligned 72rem canvas; focused forms use 42rem, profile/planning use 48rem, and data-dense routes use full width. Expanded/collapsed desktop geometry and mobile overflow are covered by local component and Playwright regression on 2026-07-28.
 
 ## Dashboard modules
 
@@ -42,8 +45,8 @@ Status: local implementation validation proven 2026-07-24; release acceptance BL
 ## Resilience and exit gate
 
 - [ ] Session restores before module requests.
-- [ ] Each module loads, fails, and retries independently.
-- [ ] Skeletons preserve final layout shape.
+- [ ] Each module loads, fails, and retries independently without exposing runtime error details; regression coverage verifies Retry never passes a click event as `AbortSignal`.
+- [x] Protected-route loading skeleton preserves page-content geometry without duplicating or replacing the drawer; covered by local component regression on 2026-07-27.
 - [x] Old selected-month heatmap/activity data is visibly dimmed during replacement load while Today, ratio, and upcoming intentions remain stable; covered by deferred-response frontend regression test.
 - [ ] Ratio failure never displays guessed data.
 - [ ] Dashboard copy and dates use shared localization contracts.
@@ -57,3 +60,5 @@ Environment: local Windows browser/test stack; operator: Codex; artifacts: front
 - **PROVEN locally:** one shell boundary, dashboard data-module isolation, accessible non-color heatmap labels, and local browser/WIO integration.
 - **OPEN:** checklist acceptance mapping.
 - **BLOCKED:** RC screen-reader, 200% zoom, touch, mobile, reduced-motion, and partial-failure manual evidence; named owner/sign-off. Boxes remain unchecked deliberately.
+
+2026-07-28 local regression evidence: dashboard retry now uses zero-argument callbacks, preventing click events from entering lifecycle `AbortSignal` values. Focused Chromium route-interception test verifies a 503 module recovers after Retry without showing `AbortSignal` text; frontend unit suite, typecheck, lint, and localization checks also passed. This is local automated evidence only and does not satisfy release acceptance.

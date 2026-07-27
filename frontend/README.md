@@ -33,3 +33,10 @@ Frontend uses credentialed requests to Django. Shared API helper gets a CSRF tok
 Tailwind CSS 4 and daisyUI 5 are configured in `src/app/globals.css`. UI must use daisyUI components and semantic colors before custom CSS.
 
 Sentry captures unhandled browser, server, and edge exceptions when DSN variables are configured. Personal data collection remains disabled.
+
+## Error handling and retry contract
+
+- Retry UI receives zero-argument callbacks. `AbortSignal` belongs only to request lifecycle code, never to UI event handlers.
+- Structured 4xx API `detail` messages may be shown through `ApiError`. 5xx, malformed-response, network, and runtime details use localized fallback copy instead.
+- Hidden unexpected exceptions are sent to Sentry without PII. Expected API errors and deliberate request aborts are not reported.
+- Every recoverable UI flow needs a failure-and-retry regression test.

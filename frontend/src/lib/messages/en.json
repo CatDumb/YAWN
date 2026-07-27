@@ -16,7 +16,10 @@
     "sessionError": "Unable to restore session. Try again.",
     "logoutError": "Unable to log out. Try again.",
     "serviceError": "Unable to reach service. Try again.",
-    "approvalPendingLabel": "Approvals: {count} pending claim(s)"
+    "approvalPendingLabel": "Approvals: {count} pending claim(s)",
+    "collapseNavigation": "Collapse navigation",
+    "expandNavigation": "Expand navigation",
+    "accountMenuLabel": "Account menu for {name}"
   },
   "common": {
     "save": "Save",

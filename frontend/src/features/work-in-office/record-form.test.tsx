@@ -7,6 +7,8 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "../../lib/errors";
+
 const { getWorkInOfficeMetadata, replace, saveWorkInOffice } = vi.hoisted(
   () => ({
     getWorkInOfficeMetadata: vi.fn(),
@@ -57,9 +59,7 @@ describe("RecordForm", () => {
   });
 
   it("keeps form input on a stale conflict", async () => {
-    const conflict = Object.assign(new Error("Record changed."), {
-      status: 409,
-    });
+    const conflict = new ApiError("Record changed.", 409);
     saveWorkInOffice.mockRejectedValueOnce(conflict);
     render(<RecordForm />);
     fireEvent.change(screen.getByLabelText("Work location"), {

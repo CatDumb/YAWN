@@ -1,27 +1,11 @@
 import { apiFetch } from "../../lib/api";
+export { responseDetail } from "../../lib/errors";
 
 import { isCurrentUser, type CurrentUser } from "./contracts";
 import type { AccessRequestValues } from "./schemas";
 
 export function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
-}
-
-export async function responseDetail(response: Response, fallback: string) {
-  try {
-    const data: unknown = await response.json();
-    if (
-      typeof data === "object" &&
-      data !== null &&
-      "detail" in data &&
-      typeof data.detail === "string"
-    ) {
-      return data.detail;
-    }
-  } catch {
-    // Generic UI copy is safer than exposing an unexpected response body.
-  }
-  return fallback;
 }
 
 export function submitAccessRequest(values: AccessRequestValues) {

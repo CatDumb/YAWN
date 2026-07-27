@@ -111,7 +111,9 @@ Recommended order:
 6. Administration — visible only to HR/admin and opens Django Admin
 7. Settings
 
-Desktop uses a persistent sidebar. Mobile uses a top bar and modal navigation drawer. Do not ship an icon-only collapsed sidebar in Phase 3.
+Desktop uses a persistent sidebar with an optional icon-only collapsed state. It starts expanded, persists the user's local choice, and keeps accessible labels, active state, and tooltips when collapsed. Mobile uses a top bar and an always-expanded modal navigation drawer.
+
+All protected routes sit under one authenticated application layout. Client-side route changes retain the drawer, session identity, approval badge, and desktop collapse state; only the content slot changes. A shared content-only loading skeleton may appear while a protected route resolves. Selecting an internal route closes transient mobile-drawer and account-menu state.
 
 The bottom user bar shows initials, full name, active role, and company. Clicking it opens a menu containing **Profile** and **Log out**. Long names truncate visually but retain a complete accessible label.
 

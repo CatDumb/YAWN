@@ -1,4 +1,5 @@
 import { apiFetch } from "../../lib/api";
+import { apiErrorFromResponse } from "../../lib/errors";
 
 export type WorkInOfficeRecord = {
   id: number;
@@ -44,22 +45,7 @@ export type WorkInOfficeInput = {
 };
 
 async function read<T>(response: Response, fallbackDetail: string): Promise<T> {
-  if (!response.ok) {
-    let detail = fallbackDetail;
-    try {
-      const body: unknown = await response.json();
-      if (
-        body &&
-        typeof body === "object" &&
-        "detail" in body &&
-        typeof body.detail === "string"
-      )
-        detail = body.detail;
-    } catch {}
-    const error = new Error(detail);
-    Object.assign(error, { status: response.status });
-    throw error;
-  }
+  if (!response.ok) throw await apiErrorFromResponse(response, fallbackDetail);
   return response.json() as Promise<T>;
 }
 

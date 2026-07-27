@@ -13,6 +13,7 @@ import {
   languageFromDocument,
   messagesFor,
 } from "../../lib/i18n";
+import { ApiError, userFacingError } from "../../lib/errors";
 
 type Props = { record?: WorkInOfficeRecord; initialDate?: string };
 
@@ -62,12 +63,8 @@ export function RecordForm({ record, initialDate }: Props) {
       );
       router.replace(`/work-in-office?saved=${saved.id}`);
     } catch (reason) {
-      setIsConflict(
-        reason instanceof Error && "status" in reason && reason.status === 409,
-      );
-      setError(
-        reason instanceof Error ? reason.message : copy.saveRecordFailed,
-      );
+      setIsConflict(reason instanceof ApiError && reason.status === 409);
+      setError(userFacingError(reason, copy.saveRecordFailed));
     } finally {
       setIsSaving(false);
     }

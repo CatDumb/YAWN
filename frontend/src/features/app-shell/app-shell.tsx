@@ -1,32 +1,90 @@
 "use client";
 
+import {
+  BadgeCheck,
+  Building2,
+  CalendarDays,
+  ChartNoAxesCombined,
+  LayoutDashboard,
+  LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Settings,
+  ShieldCheck,
+  UserRound,
+  type LucideIcon,
+} from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { currentUser, logout, responseDetail } from "../auth/api";
-import type { CurrentUser } from "../auth/contracts";
+import { apiFetch } from "../../lib/api";
 import {
   formatMessage,
   languageFromDocument,
   messagesFor,
   type Language,
 } from "../../lib/i18n";
-import { apiFetch } from "../../lib/api";
+import { currentUser, logout, responseDetail } from "../auth/api";
+import type { CurrentUser } from "../auth/contracts";
+
+const navigationStorageKey = "yawn.navigation-collapsed";
+const navigationChangeEvent = "yawn:navigation-change";
+const collapsedTooltipClass = [
+  "tooltip",
+  "tooltip-right",
+  "max-lg:before:hidden",
+  "max-lg:after:hidden",
+].join(" ");
+
+type NavigationItem = {
+  href: string;
+  icon: LucideIcon;
+  label: string;
+};
+
+function isCurrentRoute(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function navigationSnapshot() {
+  if (typeof window === "undefined") return false;
+  return (
+    document.documentElement.dataset.navigation === "collapsed" ||
+    localStorage.getItem(navigationStorageKey) === "true"
+  );
+}
+
+function subscribeToNavigation(callback: () => void) {
+  window.addEventListener(navigationChangeEvent, callback);
+  return () => window.removeEventListener(navigationChangeEvent, callback);
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const router = useRouter();
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [language, setLanguage] = useState<Language>("en");
   const [approvalCount, setApprovalCount] = useState(0);
+  const navigationToggleRef = useRef<HTMLInputElement>(null);
+  const accountMenuRef = useRef<HTMLDetailsElement>(null);
+  const isCollapsed = useSyncExternalStore(
+    subscribeToNavigation,
+    navigationSnapshot,
+    () => false,
+  );
   const copy = messagesFor(language);
-  const routes = [
-    [copy.shell.dashboard, "/dashboard"],
-    [copy.shell.workInOffice, "/work-in-office"],
-    [copy.shell.planner, "/planner"],
-    [copy.shell.reports, "/reports"],
-  ] as const;
+  const routes: NavigationItem[] = [
+    { href: "/dashboard", icon: LayoutDashboard, label: copy.shell.dashboard },
+    {
+      href: "/work-in-office",
+      icon: Building2,
+      label: copy.shell.workInOffice,
+    },
+    { href: "/planner", icon: CalendarDays, label: copy.shell.planner },
+    { href: "/reports", icon: ChartNoAxesCombined, label: copy.shell.reports },
+  ];
 
   useEffect(() => {
     void currentUser()
@@ -67,6 +125,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       window.removeEventListener("yawn:approvals", refresh);
     };
   }, [user]);
+  useEffect(() => {
+    if (navigationToggleRef.current)
+      navigationToggleRef.current.checked = false;
+    accountMenuRef.current?.removeAttribute("open");
+  }, [pathname]);
+
+  function toggleNavigation() {
+    const collapsed = !isCollapsed;
+    localStorage.setItem(navigationStorageKey, String(collapsed));
+    document.documentElement.dataset.navigation = collapsed
+      ? "collapsed"
+      : "expanded";
+    window.dispatchEvent(new Event(navigationChangeEvent));
+  }
+
+  function closeTransientNavigation() {
+    if (navigationToggleRef.current)
+      navigationToggleRef.current.checked = false;
+    accountMenuRef.current?.removeAttribute("open");
+  }
 
   if (error) {
     return (
@@ -87,6 +165,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </main>
     );
   }
+
   const membership = user.memberships[0];
   const canApprove =
     membership?.role === "manager" || membership?.role === "hr_admin";
@@ -99,10 +178,54 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     .join("")
     .slice(0, 2)
     .toUpperCase();
+  const accountMenuLabel = formatMessage(copy.shell.accountMenuLabel, {
+    name: fullName,
+  });
+
+  const renderNavigationItem = (
+    item: NavigationItem,
+    badge?: React.ReactNode,
+    accessibleLabel = item.label,
+  ) => {
+    const active = isCurrentRoute(pathname, item.href);
+    const Icon = item.icon;
+    return (
+      <li
+        className={isCollapsed ? collapsedTooltipClass : undefined}
+        data-tip={isCollapsed ? item.label : undefined}
+        key={item.href}
+      >
+        <Link
+          aria-current={active ? "page" : undefined}
+          aria-label={accessibleLabel}
+          className={`relative flex items-center gap-3 ${
+            active ? "menu-active" : ""
+          } ${isCollapsed ? "lg:justify-center" : ""}`}
+          href={item.href}
+          onClick={closeTransientNavigation}
+        >
+          <Icon aria-hidden="true" size={20} strokeWidth={2} />
+          <span
+            className={`app-navigation-expanded-only min-w-0 truncate transition-opacity duration-150 ${
+              isCollapsed ? "lg:sr-only" : ""
+            }`}
+          >
+            {item.label}
+          </span>
+          {badge}
+        </Link>
+      </li>
+    );
+  };
 
   return (
     <div className="drawer lg:drawer-open">
-      <input className="drawer-toggle" id="app-navigation" type="checkbox" />
+      <input
+        className="drawer-toggle"
+        id="app-navigation"
+        ref={navigationToggleRef}
+        type="checkbox"
+      />
       <div className="drawer-content bg-base-100 min-h-screen">
         <div className="navbar bg-base-200 px-4 lg:hidden">
           <div className="navbar-start">
@@ -118,95 +241,171 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
         {children}
       </div>
-      <div className="drawer-side">
+      <div className="drawer-side is-drawer-close:overflow-visible">
         <label
           aria-label={copy.shell.closeNavigation}
           className="drawer-overlay"
           htmlFor="app-navigation"
         />
-        <aside className="bg-base-200 text-base-content flex min-h-full w-72 flex-col p-4">
-          <p className="mb-6 px-3 text-lg font-bold">YAWN</p>
-          <nav aria-label={copy.shell.primaryNavigation} className="flex-1">
+        <aside
+          className={`app-navigation-rail bg-base-200 text-base-content flex min-h-full w-72 flex-col overflow-visible p-4 transition-all duration-200 ease-out ${
+            isCollapsed ? "lg:w-20 lg:p-2" : "lg:w-72 lg:p-4"
+          }`}
+        >
+          <div
+            className={`mb-6 flex items-center ${
+              isCollapsed ? "lg:justify-center" : "justify-between"
+            }`}
+          >
+            <Link
+              aria-label="YAWN"
+              className={`app-navigation-expanded-only px-3 text-lg font-bold transition-opacity duration-150 ${
+                isCollapsed ? "lg:sr-only" : ""
+              }`}
+              href="/dashboard"
+              onClick={closeTransientNavigation}
+            >
+              YAWN
+            </Link>
+            <button
+              aria-controls="app-primary-navigation"
+              aria-expanded={!isCollapsed}
+              aria-label={
+                isCollapsed
+                  ? copy.shell.expandNavigation
+                  : copy.shell.collapseNavigation
+              }
+              className="btn btn-ghost btn-square hidden lg:inline-flex"
+              onClick={toggleNavigation}
+              type="button"
+            >
+              {isCollapsed ? (
+                <PanelLeftOpen aria-hidden="true" size={20} />
+              ) : (
+                <PanelLeftClose aria-hidden="true" size={20} />
+              )}
+            </button>
+          </div>
+          <nav
+            aria-label={copy.shell.primaryNavigation}
+            className="flex-1"
+            id="app-primary-navigation"
+          >
             <ul className="menu w-full gap-1">
-              {routes.map(([label, href]) => (
-                <li key={href}>
-                  <Link href={href}>{label}</Link>
-                </li>
-              ))}
-              {canApprove ? (
-                <li>
-                  <Link
-                    aria-label={formatMessage(copy.shell.approvalPendingLabel, {
-                      count: approvalCount,
-                    })}
-                    href="/approvals"
-                  >
-                    {copy.shell.approvals}
-                    {approvalCount ? (
-                      <span className="badge badge-primary badge-sm">
+              {routes.map((item) => renderNavigationItem(item))}
+              {canApprove
+                ? renderNavigationItem(
+                    {
+                      href: "/approvals",
+                      icon: BadgeCheck,
+                      label: copy.shell.approvals,
+                    },
+                    approvalCount ? (
+                      <span
+                        aria-label={formatMessage(
+                          copy.shell.approvalPendingLabel,
+                          {
+                            count: approvalCount,
+                          },
+                        )}
+                        className={`badge badge-primary badge-sm ${
+                          isCollapsed
+                            ? "lg:badge-xs absolute -top-1 -right-1"
+                            : "ml-auto"
+                        }`}
+                      >
                         {approvalCount > 99 ? "99+" : approvalCount}
                       </span>
-                    ) : null}
-                  </Link>
-                </li>
-              ) : null}
-              {canAdmin ? (
-                <li>
-                  <a href="/admin/">{copy.shell.administration}</a>
-                </li>
-              ) : null}
-              <li>
-                <Link href="/settings">{copy.shell.settings}</Link>
-              </li>
+                    ) : undefined,
+                    formatMessage(copy.shell.approvalPendingLabel, {
+                      count: approvalCount,
+                    }),
+                  )
+                : null}
+              {canAdmin
+                ? renderNavigationItem({
+                    href: "/admin/",
+                    icon: ShieldCheck,
+                    label: copy.shell.administration,
+                  })
+                : null}
+              {renderNavigationItem({
+                href: "/settings",
+                icon: Settings,
+                label: copy.shell.settings,
+              })}
             </ul>
           </nav>
           <div className="border-base-300 border-t pt-4">
-            <div className="flex items-center gap-3 px-3 py-2">
-              <div aria-label={fullName} className="avatar avatar-placeholder">
-                <div className="bg-primary text-primary-content w-10 rounded-full">
-                  <span>{initials}</span>
-                </div>
-              </div>
-              <div className="min-w-0">
-                <p className="truncate font-semibold">{fullName}</p>
-                <p className="text-base-content/70 truncate text-sm">
-                  {user.email}
-                </p>
-                <p className="text-base-content/70 truncate text-sm">
-                  {membership?.role} · {membership?.company}
-                </p>
-              </div>
-            </div>
-            <div className="mt-2 flex gap-1">
-              <Link className="btn btn-ghost btn-sm" href="/profile">
-                {copy.shell.profile}
-              </Link>
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() =>
-                  void logout()
-                    .then(async (response) => {
-                      if (
-                        response.ok ||
-                        response.status === 401 ||
-                        response.status === 403
-                      )
-                        router.replace("/");
-                      else
-                        setError(
-                          await responseDetail(
-                            response,
-                            copy.shell.logoutError,
-                          ),
-                        );
-                    })
-                    .catch(() => setError(copy.shell.serviceError))
-                }
-                type="button"
+            <details
+              className={`dropdown dropdown-top w-full ${
+                isCollapsed ? collapsedTooltipClass : ""
+              }`}
+              data-tip={isCollapsed ? accountMenuLabel : undefined}
+              ref={accountMenuRef}
+            >
+              <summary
+                aria-label={accountMenuLabel}
+                className={`btn btn-ghost flex h-auto min-h-12 w-full list-none items-center gap-3 px-3 py-2 text-left ${
+                  isCollapsed ? "lg:justify-center lg:px-0" : ""
+                }`}
+                role="button"
               >
-                {copy.shell.logOut}
-              </button>
-            </div>
+                <div aria-hidden="true" className="avatar avatar-placeholder">
+                  <div className="bg-primary text-primary-content w-10 rounded-full">
+                    <span>{initials}</span>
+                  </div>
+                </div>
+                <div
+                  className={`app-navigation-expanded-only min-w-0 transition-opacity duration-150 ${
+                    isCollapsed ? "lg:sr-only" : ""
+                  }`}
+                >
+                  <p className="truncate font-semibold">{fullName}</p>
+                  <p className="text-base-content/70 truncate text-sm">
+                    {user.email}
+                  </p>
+                  <p className="text-base-content/70 truncate text-sm">
+                    {membership?.role} · {membership?.company}
+                  </p>
+                </div>
+              </summary>
+              <ul className="menu dropdown-content bg-base-100 rounded-box z-50 mt-2 w-56 p-2 shadow">
+                <li>
+                  <Link href="/profile" onClick={closeTransientNavigation}>
+                    <UserRound aria-hidden="true" size={18} />
+                    {copy.shell.profile}
+                  </Link>
+                </li>
+                <li>
+                  <button
+                    onClick={() =>
+                      void logout()
+                        .then(async (response) => {
+                          if (
+                            response.ok ||
+                            response.status === 401 ||
+                            response.status === 403
+                          )
+                            router.replace("/");
+                          else
+                            setError(
+                              await responseDetail(
+                                response,
+                                copy.shell.logoutError,
+                              ),
+                            );
+                        })
+                        .catch(() => setError(copy.shell.serviceError))
+                    }
+                    type="button"
+                  >
+                    <LogOut aria-hidden="true" size={18} />
+                    {copy.shell.logOut}
+                  </button>
+                </li>
+              </ul>
+            </details>
           </div>
         </aside>
       </div>

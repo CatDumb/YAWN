@@ -7,19 +7,18 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "@/lib/errors";
+
 const { deleteWorkInOffice, getWorkInOffice, replace } = vi.hoisted(() => ({
   deleteWorkInOffice: vi.fn(),
   getWorkInOffice: vi.fn(),
   replace: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }) }));
-vi.mock("../../../features/work-in-office/api", () => ({
+vi.mock("@/features/work-in-office/api", () => ({
   deleteWorkInOffice,
   getWorkInOffice,
   saveWorkInOffice: vi.fn(),
-}));
-vi.mock("../../../features/app-shell/app-shell", () => ({
-  AppShell: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 import WorkInOfficeDetailPage from "./page";
@@ -69,7 +68,7 @@ describe("WorkInOfficeDetailPage", () => {
   });
 
   it("shows detail failure", async () => {
-    getWorkInOffice.mockRejectedValue(new Error("No record."));
+    getWorkInOffice.mockRejectedValue(new ApiError("No record.", 404));
     render(<WorkInOfficeDetailPage params={Promise.resolve({ id: "4" })} />);
     expect(await screen.findByRole("alert")).toHaveTextContent("No record.");
   });

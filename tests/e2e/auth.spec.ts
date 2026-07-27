@@ -47,6 +47,8 @@ test("OTP login restores session and logout clears it", async ({ page }) => {
   await page.reload();
   await expect(page.getByText(employeeEmail)).toBeVisible();
 
+  await page.getByRole("button", { name: /^Account menu for / }).focus();
+  await page.keyboard.press("Enter");
   await page.getByRole("button", { name: "Log out" }).click();
   await expect(page).toHaveURL("/");
   await expect(

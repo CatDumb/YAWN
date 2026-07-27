@@ -19,13 +19,16 @@ Signed-in users receive a responsive, role-aware app shell and Two Horizons dash
 
 - Extend the shared shell established in Subphase 3.3; do not create a second auth/navigation boundary.
 - Complete persistent desktop sidebar and mobile top bar/modal drawer.
+- Add a top-right desktop collapse control: expanded 18rem rail, collapsed 5rem icon rail, locally persisted state, active-route indication, keyboard-safe labels, and tooltips.
 - Make every navigation item's hover and keyboard-focus target fill the sidebar's padded inner lane.
 - Order navigation: Dashboard, Work-in-office, Planner, Reports, conditional Approvals, conditional Administration, Settings.
 - Make Administration open Django Admin for HR/admin only.
 - Add bottom user bar with initials, full name, active role, company, Profile, and Log out.
 - Truncate long names visually while preserving complete accessible label.
 - Enforce access again at route and API layers.
-- Migrate WIO, Approvals, Reports, and Planner pages into the shared shell and remove page-specific session wrappers.
+- Migrate WIO, Approvals, Reports, Planner, Dashboard, Profile, and Settings into one authenticated route-group layout; remove page-specific session wrappers so only the child content changes on protected navigation.
+- Use one left-aligned, 72rem authenticated content canvas with 16px mobile and 32px desktop gutters. Keep focused forms at 42rem, profile/planning content at 48rem, and dashboards, reports, approvals, and record tables at full canvas width.
+- Use a content-only shared loading skeleton. Keep the drawer mounted, and close mobile-drawer/account-menu transient state after internal navigation while retaining desktop collapse preference.
 
 ### 2. Two Horizons dashboard
 
@@ -56,6 +59,7 @@ Signed-in users receive a responsive, role-aware app shell and Two Horizons dash
 - Load Today, ratio, heatmap, upcoming intentions, and activity independently after auth restoration.
 - Use stable shape-matching skeletons.
 - Give each failed module local error plus Retry while leaving others usable.
+- Invoke each Retry through a zero-argument callback; lifecycle-only `AbortSignal` values must never receive browser events. Show only localized fallback copy for unexpected failures.
 - Never infer or retain unlabeled ratio values after calculation failure.
 - Use concise empty states with at most one CTA.
 - Build all module copy and date labels through shared localization contracts; Subphase 3.7 supplies final catalogs and completeness enforcement.
@@ -64,7 +68,9 @@ Signed-in users receive a responsive, role-aware app shell and Two Horizons dash
 
 - Test role navigation plus direct route/API denial.
 - Test each heatmap state/action and accessible label, including Pending assignment and Expired pending. Verify Monday-through-Sunday localized headings, day-1 weekday alignment, accessibility-hidden leading cells, and every vertical legend row's aligned swatch, symbol, colon, and text. Check mobile, desktop, dark theme, Vietnamese, and 200% zoom.
-- Test month/fiscal independence, partial failures, retries, stale-month display, empty responses, mobile order, keyboard drawer/focus, reduced motion, zoom, and screen readers.
+- Test month/fiscal independence, partial failures, safe independent retries without event-as-signal leakage, stale-month display, empty responses, desktop collapse/reload, mobile expanded drawer behavior, keyboard drawer/focus, reduced motion, zoom, and screen readers.
+- Test protected-route persistence: drawer DOM remains mounted, session restoration executes once, active navigation changes, transient menu state closes, and loading UI remains inside page content.
+- Test stable authenticated content origin across wide, medium, and narrow routes in expanded and collapsed desktop drawer states; verify narrow screens fill available width without horizontal overflow.
 
 ## Deliverables
 
@@ -81,4 +87,4 @@ Signed-in users receive a responsive, role-aware app shell and Two Horizons dash
 
 ## Out of scope
 
-- Dashboard edit forms, approval queue/module, icon-only collapsed sidebar, yearly heatmap, and export button.
+- Dashboard edit forms, approval queue/module, yearly heatmap, and export button.
