@@ -296,6 +296,11 @@ function shiftMonth(value: string, increment: number) {
   return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function mondayOffset(value: string) {
+  const firstDate = new Date(`${value}-01T00:00:00`);
+  return (firstDate.getDay() + 6) % 7;
+}
+
 function Module({
   children,
   error,
@@ -465,6 +470,15 @@ export default function DashboardPage() {
         ? copy.fixRejectedWio
         : copy.openWio
     : copy.recordWio;
+  const weekdayLabels = [
+    copy.weekdayMonday,
+    copy.weekdayTuesday,
+    copy.weekdayWednesday,
+    copy.weekdayThursday,
+    copy.weekdayFriday,
+    copy.weekdaySaturday,
+    copy.weekdaySunday,
+  ];
 
   return (
     <AppShell>
@@ -646,6 +660,26 @@ export default function DashboardPage() {
                   className="mt-4 grid grid-cols-7 gap-1"
                   aria-label={copy.heatmapLabel}
                 >
+                  {weekdayLabels.map((weekday) => (
+                    <span
+                      className="min-w-0 px-1 text-center text-xs font-semibold"
+                      data-testid="heatmap-weekday"
+                      key={weekday}
+                    >
+                      {weekday}
+                    </span>
+                  ))}
+                  {Array.from(
+                    { length: mondayOffset(selectedMonth) },
+                    (_, index) => (
+                      <span
+                        aria-hidden="true"
+                        className="min-h-11"
+                        data-heatmap-leading-day="true"
+                        key={`leading-${index}`}
+                      />
+                    ),
+                  )}
                   {heatmap?.map((day) => {
                     const visual = heatmapVisual(heatmapState(day), copy);
                     const label = formatMessage(copy.heatmapDayLabel, {
@@ -696,12 +730,12 @@ export default function DashboardPage() {
                   <h3 className="text-sm font-semibold" id="heatmap-legend">
                     {copy.legendTitle}
                   </h3>
-                  <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm">
+                  <ul className="mt-2 grid gap-y-2 text-sm">
                     {legendStates().map((state) => {
                       const visual = heatmapVisual(state, copy);
                       return (
                         <li
-                          className="flex items-center gap-1.5"
+                          className="grid grid-cols-[1rem_0.75rem_0.5rem_minmax(0,1fr)] items-center gap-x-1.5"
                           key={`${state.key}-${state.commitment ?? ""}`}
                         >
                           <span
@@ -715,6 +749,7 @@ export default function DashboardPage() {
                           >
                             {visual.symbol}
                           </span>
+                          <span aria-hidden="true">:</span>
                           <span>{visual.label}</span>
                         </li>
                       );

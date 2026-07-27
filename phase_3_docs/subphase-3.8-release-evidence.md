@@ -2,7 +2,7 @@
 
 Status: release not approved.
 
-Last updated: 2026-07-26.
+Last updated: 2026-07-27.
 
 This ledger is the Phase 3 release gate companion to the 3.8 plan and checklist. It does not replace checklist evidence. A checklist item is accepted only when the evidence column contains a dated artifact, owner, and passing result from a release-candidate environment.
 
@@ -73,6 +73,8 @@ These checks are useful regression evidence only. They do not replace the requir
 
 | Date | Evidence | Result | Scope |
 | --- | --- | --- | --- |
+| 2026-07-27 | Local Windows; operator Codex; `npm test -- src/app/phase3-pages.test.tsx src/app/dashboard/page.test.tsx`; `npm run test:coverage`; `npm run format:check`; `npm run i18n:check`; `npm run lint`; `npm run typecheck`; `npm run build` | Passed: 15 focused dashboard tests; 39 frontend tests; coverage 79.66% statements, 71.68% branches, 75.27% functions, 81.94% lines; format, localization, lint, typecheck, and optimized build passed | Monday-first localized headers, July 1 weekday placement with two hidden/inert leading cells, all 13 single-column `swatch + symbol: label` legend rows, state links/labels, stale-month behavior, and EN/VI catalogs have local automated regression evidence only. It is not release-candidate or manual mobile/desktop, dark-theme, or 200% zoom acceptance evidence. |
+| 2026-07-27 | `npm run format:check`; local Prettier write attempt for `src/app/dashboard/page.tsx` and `src/app/phase3-pages.test.tsx` | Initial format check failed on the two changed files; formatter write failed with `EPERM`; files were then patched to Prettier output and the final format check passed | Failure retained honestly. No release-candidate approval is claimed. |
 | 2026-07-26 | Intentional test-coverage removal; `uv run pytest -p no:cacheprovider`; `npm run test:e2e`; `git diff --check` | Passed: backend 114/114; Playwright authentication 1/1; diff hygiene clean | Removed the rejected-record resubmission backend test and standalone WIO lifecycle Playwright spec. This deliberately leaves no browser WIO lifecycle coverage and no coverage from that removed backend test; no release-candidate approval is claimed. |
 | 2026-07-26 | Local Windows; operator Codex; `uv run pytest --no-cov -p no:cacheprovider tests/test_phase3_contracts.py::test_dashboard_modules_keep_fiscal_empty_state_and_month_independent tests/test_phase3_contracts.py::test_dashboard_heatmap_exposes_intention_commitment tests/test_phase3_contracts.py::test_target_size_heatmap_uses_bulk_eligibility_without_per_day_queries` | Passed: 3 tests | Dashboard heatmap returns `firm`/`flexible`/`null` commitment values and keeps the existing bulk-eligibility query budget. Focused local regression evidence only. |
 | 2026-07-26 | `npm test -- src/app/phase3-pages.test.tsx src/app/dashboard/page.test.tsx`; `npm run format:check`; `npm run i18n:check`; `npm run lint`; `npm run typecheck`; `npm run test:coverage`; `npm run build` | Passed: 14 focused dashboard tests; 38 frontend tests; dashboard coverage 93.82% statements, 81.13% branches, 96.77% functions, 94.92% lines; optimized build passed | Covers month-request cancellation/stale-response handling, stable module rendering, initial skeleton behavior, state resolver/legend parity, and EN/VI catalog validation. Local only; not RC acceptance. |

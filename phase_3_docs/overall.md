@@ -188,7 +188,7 @@ Contextual actions navigate to the owning page:
 
 ## 7. Monthly heatmap
 
-The heatmap is a compact, adjustable-month grid inspired by GitHub contribution calendars, not a 365-cell yearly grid.
+The heatmap is a compact, adjustable-month grid inspired by GitHub contribution calendars, not a 365-cell yearly grid. It has localized weekday headings ordered Monday through Sunday (English: `Mon`, `Tue`, `Wed`, `Thu`, `Fri`, `Sat`, `Sun`), and day 1 is placed under its real weekday. Leading cells before day 1 are blank, non-interactive, and hidden from assistive technology.
 
 ### Legend and states
 
@@ -205,7 +205,7 @@ The heatmap is a compact, adjustable-month grid inspired by GitHub contribution 
 - Stronger/lighter yellow: Firm/Flexible intention.
 - Empty + open circle: eligible date with no record or intention.
 
-A persistent visible legend is mandatory. Each legend item pairs its text label and non-color symbol with a small square swatch that uses the same semantic fill, border, and state treatment as its heatmap cells; the legend must demonstrate the visual mapping rather than describe colors in text alone. The swatch is decorative, while the adjacent symbol and label remain visible and accessible. Office and Home intention cells include their Firm/Flexible commitment so the yellow treatment can be stronger or lighter. Every cell also needs a complete accessible label. Tooltip content may supplement but never replace visible or assistive meaning.
+A persistent visible legend is mandatory. It is one vertical column: `swatch + symbol: label`. Every row aligns the small square swatch, non-color symbol, colon, and text label; each swatch uses the same semantic fill, border, and state treatment as its heatmap cells. The swatch, symbol, and colon are decorative and hidden from assistive technology, while the text label remains visible and accessible. Office and Home intention cells include their Firm/Flexible commitment so the yellow treatment can be stronger or lighter. Every cell also needs a complete accessible label. Tooltip content may supplement but never replace visible or assistive meaning.
 
 ### Cell actions
 

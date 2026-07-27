@@ -79,6 +79,11 @@ function responseFor(url: string) {
   if (url.startsWith("/api/v1/dashboard/heatmap/")) {
     return response([
       {
+        date: "2026-07-01",
+        action: "none",
+        record_id: null,
+      },
+      {
         date: "2026-07-20",
         action: "open",
         record_id: 3,
@@ -480,10 +485,31 @@ describe("Phase 3 page contracts", () => {
     );
   });
 
-  it("renders independent dashboard modules and non-color heatmap states", async () => {
+  it("renders Monday-first heatmap calendar, aligned legend, and non-color states", async () => {
     render(<DashboardPage />);
 
     expect(await screen.findByText("111.12%")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Dashboard month"), {
+      target: { value: "2026-07" },
+    });
+    expect(
+      await screen.findByLabelText(/Jul 1.*empty eligible date/),
+    ).toBeInTheDocument();
+    const heatmap = screen.getByLabelText("Monthly work-in-office heatmap");
+    expect(
+      [...heatmap.querySelectorAll('[data-testid="heatmap-weekday"]')].map(
+        (heading) => heading.textContent,
+      ),
+    ).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
+    const leadingDays = heatmap.querySelectorAll("[data-heatmap-leading-day]");
+    expect(leadingDays).toHaveLength(2);
+    leadingDays.forEach((day) =>
+      expect(day).toHaveAttribute("aria-hidden", "true"),
+    );
+    expect(heatmap.children[9]).toHaveAttribute(
+      "aria-label",
+      expect.stringMatching(/Jul 1.*empty eligible date/),
+    );
     expect(
       screen.getByRole("link", { name: /Jul 20.*approved/ }),
     ).toHaveAttribute("href", "/work-in-office/3");
@@ -496,6 +522,17 @@ describe("Phase 3 page contracts", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("flexible home intention")).toBeInTheDocument();
     expect(screen.getByText("empty eligible date")).toBeInTheDocument();
+    const legend = screen.getByRole("heading", { name: "Heatmap legend" })
+      .nextElementSibling as HTMLUListElement;
+    expect(legend).toHaveClass("grid");
+    expect(legend.children).toHaveLength(13);
+    [...legend.children].forEach((item) => {
+      expect(item).toHaveClass("grid-cols-[1rem_0.75rem_0.5rem_minmax(0,1fr)]");
+      expect(item.children[0]).toHaveAttribute("aria-hidden", "true");
+      expect(item.children[1]).toHaveAttribute("aria-hidden", "true");
+      expect(item.children[2]).toHaveAttribute("aria-hidden", "true");
+      expect(item.children[2]).toHaveTextContent(":");
+    });
     expect(screen.getAllByText("✓").length).toBeGreaterThan(1);
     expect(screen.getAllByText("⌛").length).toBeGreaterThan(1);
     fireEvent.click(screen.getByRole("button", { name: "Previous" }));
@@ -504,6 +541,21 @@ describe("Phase 3 page contracts", () => {
         apiFetch.mock.calls.some(([url]) => String(url).includes("month=")),
       ).toBe(true),
     );
+  });
+
+  it("localizes Monday-first heatmap headings in Vietnamese", async () => {
+    document.documentElement.lang = "vi";
+    render(<DashboardPage />);
+
+    await screen.findByText("111.12%");
+    const heatmap = screen.getByLabelText(
+      "Bản đồ nhiệt làm việc tại văn phòng theo tháng",
+    );
+    expect(
+      [...heatmap.querySelectorAll('[data-testid="heatmap-weekday"]')].map(
+        (heading) => heading.textContent,
+      ),
+    ).toEqual(["T2", "T3", "T4", "T5", "T6", "T7", "CN"]);
   });
 
   it("keeps stable modules visible and ignores superseded month responses", async () => {

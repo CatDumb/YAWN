@@ -36,10 +36,10 @@ Signed-in users receive a responsive, role-aware app shell and Two Horizons dash
 
 ### 3. Adjustable-month heatmap
 
-- Build compact monthly grid with independent month selection across fiscal years.
+- Build compact monthly grid with independent month selection across fiscal years, localized Monday-first weekday headings, and day-1 placement under its real weekday; leading positions are blank, non-interactive, and hidden from assistive technology.
 - Represent approved, Pending assignment, pending, rejected, Not in office, draft, Expired pending, ineligible, Office intention, Home intention, and empty states using color plus symbol.
 - Return the existing Planner intention commitment with each heatmap day so Firm and Flexible yellow treatments remain distinguishable.
-- Keep a persistent visible legend and full accessible label per cell. Every legend item must render a small square swatch with the same semantic fill, border, and state treatment as its corresponding heatmap cell, beside its non-color symbol and text label; color names alone do not meet this requirement.
+- Keep a persistent one-column `swatch + symbol: label` legend and full accessible label per cell. Every legend row aligns its small square swatch, non-color symbol, decorative colon, and text label; the swatch, symbol, and colon are accessibility-hidden. The swatch uses the same semantic fill, border, and state treatment as its corresponding heatmap cell; color names alone do not meet this requirement.
 - Map cells to valid detail/create/edit actions; closed/ineligible cells explain why.
 - Preserve month grid on empty success and dim only selected-month heatmap/activity content during month load; Today, ratio, and upcoming intentions stay stable.
 
@@ -62,7 +62,7 @@ Signed-in users receive a responsive, role-aware app shell and Two Horizons dash
 ## Testing strategy
 
 - Test role navigation plus direct route/API denial.
-- Test each heatmap state/action and accessible label, including Pending assignment and Expired pending. Verify every persistent legend item visibly renders its corresponding square swatch while retaining adjacent non-color symbol and text.
+- Test each heatmap state/action and accessible label, including Pending assignment and Expired pending. Verify Monday-through-Sunday localized headings, day-1 weekday alignment, accessibility-hidden leading cells, and every vertical legend row's aligned swatch, symbol, colon, and text. Check mobile, desktop, dark theme, Vietnamese, and 200% zoom.
 - Test month/fiscal independence, partial failures, retries, stale-month display, empty responses, mobile order, keyboard drawer/focus, reduced motion, zoom, and screen readers.
 
 ## Deliverables

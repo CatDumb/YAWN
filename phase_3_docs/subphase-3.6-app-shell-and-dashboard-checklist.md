@@ -28,9 +28,11 @@ Status: local implementation validation proven 2026-07-24; release acceptance BL
 ## Heatmap
 
 - [ ] Month can move across fiscal years independently of ratio period.
+- [x] Localized weekday headers run Monday through Sunday, and day 1 aligns under its real weekday with leading cells non-interactive and accessibility-hidden; focused dashboard regression test passed 2026-07-27.
 - [x] Every required WIO, Pending assignment, Expired pending, intention, exclusion, and empty state is represented by automated frontend coverage.
 - [x] Meaning never relies on color alone; visible symbols and labels have automated coverage.
 - [x] Persistent visible legend shows a small square swatch for every state, matching its heatmap cell's semantic fill, border, and state treatment; each swatch sits beside a visible non-color symbol and text label.
+- [x] Legend is one vertical column with aligned decorative swatch, symbol, colon, and accessible text label in every row; focused dashboard regression test passed 2026-07-27.
 - [ ] Every cell has complete accessible label.
 - [ ] Cell actions follow record/date eligibility rules.
 - [ ] Closed and ineligible cells explain why.
