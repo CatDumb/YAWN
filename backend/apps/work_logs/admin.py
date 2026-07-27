@@ -25,6 +25,8 @@ class AuditedAdmin(admin.ModelAdmin):
     company_lookup = "company"
 
     def _allowed_company_ids(self, user):
+        if not user.is_authenticated:
+            return CompanyMembership.objects.none().values("company_id")
         if user.is_superuser:
             return None
         return CompanyMembership.objects.filter(

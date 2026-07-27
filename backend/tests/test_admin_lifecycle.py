@@ -31,6 +31,17 @@ def run_admin_action(client, url, action, object_id):
 
 
 @pytest.mark.django_db
+def test_anonymous_user_can_render_admin_login(client):
+    response = client.get(
+        reverse("admin:login"),
+        {"next": reverse("admin:accounts_company_changelist")},
+    )
+
+    assert response.status_code == 200
+    assert "Log in" in response.content.decode()
+
+
+@pytest.mark.django_db
 def test_only_superusers_or_active_staff_hr_admins_can_view_access_requests(
     client,
     company,
