@@ -6,6 +6,7 @@ Status: local implementation validation proven 2026-07-24; release acceptance BL
 
 - [ ] Existing Subphase 3.3 shell is extended rather than duplicated.
 - [ ] Desktop sidebar and mobile modal drawer work.
+- [x] Navigation-item hover and keyboard-focus targets fill the sidebar's padded inner lane; focused Playwright regression passed 2026-07-27 (local evidence only).
 - [ ] Navigation order matches Phase 3 information architecture.
 - [ ] Approvals appears only for eligible managers.
 - [ ] Administration appears only for HR/admin and opens Django Admin.

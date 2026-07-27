@@ -19,6 +19,7 @@ Signed-in users receive a responsive, role-aware app shell and Two Horizons dash
 
 - Extend the shared shell established in Subphase 3.3; do not create a second auth/navigation boundary.
 - Complete persistent desktop sidebar and mobile top bar/modal drawer.
+- Make every navigation item's hover and keyboard-focus target fill the sidebar's padded inner lane.
 - Order navigation: Dashboard, Work-in-office, Planner, Reports, conditional Approvals, conditional Administration, Settings.
 - Make Administration open Django Admin for HR/admin only.
 - Add bottom user bar with initials, full name, active role, company, Profile, and Log out.

@@ -127,7 +127,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <aside className="bg-base-200 text-base-content flex min-h-full w-72 flex-col p-4">
           <p className="mb-6 px-3 text-lg font-bold">YAWN</p>
           <nav aria-label={copy.shell.primaryNavigation} className="flex-1">
-            <ul className="menu gap-1">
+            <ul className="menu w-full gap-1">
               {routes.map(([label, href]) => (
                 <li key={href}>
                   <Link href={href}>{label}</Link>
