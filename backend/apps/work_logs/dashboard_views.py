@@ -177,9 +177,20 @@ class DashboardRatioView(APIView):
             {
                 "available": True,
                 "approved_days": str(report["approved_days"]),
+                "self_submitted_days": str(report["self_submitted_days"]),
                 "expected_display": report["expected_display"],
                 "ratio_display": report["ratio_display"],
                 "balance": str(balance.quantize(Decimal("0.01"))),
+                "self_submitted_ratio_display": report["self_submitted_ratio_display"],
+                "self_submitted_percentage": str(report["self_submitted_percentage"])
+                if report["self_submitted_percentage"] is not None
+                else None,
+                "self_submitted_balance": str(
+                    (report["self_submitted_days"] - report["expected_fraction_sum"]).quantize(
+                        Decimal("0.01")
+                    )
+                ),
+                "self_approval_applies": employee.role in {"manager", "hr_admin"},
                 "remaining_eligible_days": remaining,
                 "pending_count": report["pending_count"],
                 "pending_assignment_count": report["pending_assignment_count"],

@@ -58,6 +58,63 @@ def active_period(company, today):
     )
 
 
+def test_privileged_submission_self_approves_and_can_be_undone(client, db):
+    company = Company.objects.create(name="Yawn", slug="yawn")
+    manager = membership(
+        email="manager@example.com", company=company, role=CompanyMembership.Role.MANAGER
+    )
+    record = save_record(
+        employee=manager,
+        work_date=timezone.localdate(),
+        location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
+        actor=manager.user,
+    )
+
+    assert record.review_state == WorkInOfficeRecord.ReviewState.APPROVED
+    assert record.approval_method == WorkInOfficeRecord.ApprovalMethod.SELF_APPROVED
+    assert record.approved_by_snapshot["membership_id"] == manager.pk
+
+    client.force_login(manager.user)
+    response = client.post(
+        f"/api/v1/work-in-office/{record.pk}/undo-self-approval/",
+        {"version": record.version},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["review_state"] == WorkInOfficeRecord.ReviewState.DRAFT
+    assert response.json()["approval_method"] is None
+    assert AuditEvent.objects.filter(event_type="work_logs.self_approval_undone").exists()
+
+
+def test_employee_submission_stays_pending_and_self_undo_is_hidden(client, db):
+    company = Company.objects.create(name="Yawn", slug="yawn")
+    employee = membership(email="employee@example.com", company=company)
+    manager = membership(
+        email="manager@example.com", company=company, role=CompanyMembership.Role.MANAGER
+    )
+    ManagerAssignment.objects.create(
+        manager=manager, employee=employee, effective_from=timezone.localdate()
+    )
+    record = save_record(
+        employee=employee,
+        work_date=timezone.localdate(),
+        location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
+        actor=employee.user,
+    )
+
+    assert record.review_state == WorkInOfficeRecord.ReviewState.PENDING
+    assert record.approval_method is None
+
+    client.force_login(employee.user)
+    response = client.post(
+        f"/api/v1/work-in-office/{record.pk}/undo-self-approval/",
+        {"version": record.version},
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+
+
 def test_manager_queue_decision_is_assignment_scoped(client, db):
     company = Company.objects.create(name="Yawn", slug="yawn")
     employee = membership(email="employee@example.com", company=company)
@@ -814,6 +871,7 @@ def test_assignment_and_undo_failures_recover_without_logging_private_content(
         work_date=today - timedelta(days=1),
         location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
         review_state=WorkInOfficeRecord.ReviewState.APPROVED,
+        approval_method=WorkInOfficeRecord.ApprovalMethod.MANAGER_APPROVED,
         approval_owner_snapshot={"membership_id": manager.pk},
         approved_by_snapshot={"membership_id": manager.pk},
         approved_at=timezone.now(),
@@ -1832,6 +1890,7 @@ def test_report_dashboard_csv_and_frozen_revision_share_raw_denominator_fixture(
             work_date=start + timedelta(days=offset),
             location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
             review_state=WorkInOfficeRecord.ReviewState.APPROVED,
+            approval_method=WorkInOfficeRecord.ApprovalMethod.MANAGER_APPROVED,
         )
     WorkInOfficeRecord.objects.create(
         employee=employee,
@@ -1850,16 +1909,28 @@ def test_report_dashboard_csv_and_frozen_revision_share_raw_denominator_fixture(
     ).content.decode("utf-8-sig")
     csv_rows = list(csv.reader(StringIO(csv_body)))
     header_index = csv_rows.index(
-        ["Date", "Eligible", "Reason", "Expected fraction", "Approved credit"]
+        [
+            "Date",
+            "Eligible",
+            "Reason",
+            "Expected fraction",
+            "Approved credit",
+            "Self-submitted credit",
+            "Review state",
+            "Approval method",
+            "Source",
+        ]
     )
     ledger_rows = csv_rows[header_index + 1 :]
 
     assert report["approved_days"] == "2"
+    assert report["self_submitted_days"] == "3"
     assert report["expected_fraction_sum"] == "1.80"
     assert report["percentage"] == "111.12"
     assert report["ratio_display"] == "111.12%"
     assert report["balance"] == "0.20"
     assert dashboard["approved_days"] == "2"
+    assert dashboard["self_submitted_days"] == "3"
     assert dashboard["expected_display"] == "1.80"
     assert dashboard["ratio_display"] == "111.12%"
     assert dashboard["balance"] == "0.20"
@@ -1881,6 +1952,7 @@ def test_report_dashboard_csv_and_frozen_revision_share_raw_denominator_fixture(
 
     assert FinalizedLedgerRevision.objects.get(period=period, employee=employee).summary == {
         "approved_days": "2",
+        "self_submitted_days": "3",
         "expected_fraction_sum": "1.80",
         "percentage": "111.12",
     }
@@ -2033,6 +2105,7 @@ def test_target_size_report_export_and_projection_do_not_add_per_day_queries(cli
                 work_date=period.start_date + timedelta(days=offset),
                 location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
                 review_state=WorkInOfficeRecord.ReviewState.APPROVED,
+                approval_method=WorkInOfficeRecord.ApprovalMethod.MANAGER_APPROVED,
             )
             for offset in range((today - period.start_date).days + 1)
         ]
@@ -2085,6 +2158,7 @@ def test_dashboard_ratio_keeps_verified_progress_when_future_projection_has_poli
         work_date=today,
         location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
         review_state=WorkInOfficeRecord.ReviewState.APPROVED,
+        approval_method=WorkInOfficeRecord.ApprovalMethod.MANAGER_APPROVED,
     )
     client.force_login(employee.user)
 
@@ -2175,6 +2249,7 @@ def test_csv_excludes_wio_notes_and_private_planner_data(db):
         work_date=day,
         location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
         review_state=WorkInOfficeRecord.ReviewState.APPROVED,
+        approval_method=WorkInOfficeRecord.ApprovalMethod.MANAGER_APPROVED,
         note="EMPLOYEE_TO_APPROVER_SECRET",
         approver_note="MANAGER_PRIVATE_REASON_SECRET",
     )
@@ -2231,6 +2306,7 @@ def test_final_report_uses_frozen_wio_state_after_record_changes(db):
         work_date=day,
         location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
         review_state=WorkInOfficeRecord.ReviewState.APPROVED,
+        approval_method=WorkInOfficeRecord.ApprovalMethod.MANAGER_APPROVED,
     )
     assert freeze_period_ledgers(period) == {"revisions_created": 1}
     period.state = FiscalPeriod.State.FINAL
@@ -2238,8 +2314,17 @@ def test_final_report_uses_frozen_wio_state_after_record_changes(db):
 
     record.review_state = WorkInOfficeRecord.ReviewState.REJECTED
     record.location_choice = WorkInOfficeRecord.LocationChoice.NOT_IN_OFFICE
+    record.approval_method = None
     record.version += 1
-    record.save(update_fields=["review_state", "location_choice", "version", "updated_at"])
+    record.save(
+        update_fields=[
+            "review_state",
+            "location_choice",
+            "approval_method",
+            "version",
+            "updated_at",
+        ]
+    )
 
     report = report_for(employee=employee, start_date=day, end_date=day)
 
@@ -2272,6 +2357,7 @@ def test_audited_reopen_creates_linked_successor_revision_without_erasing_histor
         work_date=day,
         location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
         review_state=WorkInOfficeRecord.ReviewState.APPROVED,
+        approval_method=WorkInOfficeRecord.ApprovalMethod.MANAGER_APPROVED,
     )
     steps = {"freeze_ledgers": freeze_period_ledgers}
 
@@ -2284,8 +2370,17 @@ def test_audited_reopen_creates_linked_successor_revision_without_erasing_histor
     period.save(update_fields=["state", "reopened_at", "updated_at"])
     record.location_choice = WorkInOfficeRecord.LocationChoice.NOT_IN_OFFICE
     record.review_state = WorkInOfficeRecord.ReviewState.NOT_REQUIRED
+    record.approval_method = None
     record.version += 1
-    record.save(update_fields=["location_choice", "review_state", "version", "updated_at"])
+    record.save(
+        update_fields=[
+            "location_choice",
+            "review_state",
+            "approval_method",
+            "version",
+            "updated_at",
+        ]
+    )
 
     run_finalization(period.pk, steps)
     run_finalization(period.pk, steps)

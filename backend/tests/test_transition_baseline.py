@@ -56,6 +56,7 @@ def test_transition_baseline_carries_into_local_ratio(policy_employee, transitio
         work_date=date(2026, 7, 1),
         location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
         review_state=WorkInOfficeRecord.ReviewState.APPROVED,
+        approval_method=WorkInOfficeRecord.ApprovalMethod.MANAGER_APPROVED,
     )
 
     report = report_for(

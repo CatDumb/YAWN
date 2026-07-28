@@ -62,6 +62,7 @@ class ReportView(APIView):
         return Response(
             {
                 "approved_days": str(report["approved_days"]),
+                "self_submitted_days": str(report["self_submitted_days"]),
                 "expected_fraction_sum": str(report["expected_fraction_sum"]),
                 "expected_display": report["expected_display"],
                 "balance": str(
@@ -72,6 +73,16 @@ class ReportView(APIView):
                 "percentage": str(report["percentage"])
                 if report["percentage"] is not None
                 else None,
+                "self_submitted_ratio_display": report["self_submitted_ratio_display"],
+                "self_submitted_percentage": str(report["self_submitted_percentage"])
+                if report["self_submitted_percentage"] is not None
+                else None,
+                "self_submitted_balance": str(
+                    (report["self_submitted_days"] - report["expected_fraction_sum"]).quantize(
+                        Decimal("0.01")
+                    )
+                ),
+                "self_approval_applies": membership.role in {"manager", "hr_admin"},
                 "ratio_display": report["ratio_display"],
                 "pending_count": report["pending_count"],
                 "pending_assignment_count": report["pending_assignment_count"],

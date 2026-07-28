@@ -80,6 +80,7 @@ def test_ratio_ledger_explains_exclusions_and_rounds_once(policy_employee):
         work_date=monday,
         location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
         review_state=WorkInOfficeRecord.ReviewState.APPROVED,
+        approval_method=WorkInOfficeRecord.ApprovalMethod.MANAGER_APPROVED,
     )
     result = ratio_ledger(
         employee=policy_employee,

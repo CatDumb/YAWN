@@ -26,6 +26,7 @@ class LedgerDay:
     rule_version: int | None
     expected_fraction: Decimal
     approval_credit: Decimal
+    self_submitted_credit: Decimal
     source: str = "daily"
 
 
@@ -37,27 +38,37 @@ def calculate_ratio(days: list[LedgerDay]):
     """Pure contract shared by reports, CSV, dashboard, and Planner projections."""
     expected_total = sum((row.expected_fraction for row in days), Decimal("0"))
     approved_total = sum((row.approval_credit for row in days), Decimal("0"))
+    self_submitted_total = sum((row.self_submitted_credit for row in days), Decimal("0"))
     if expected_total == 0:
         return {
             "days": days,
             "approved_days": approved_total,
+            "self_submitted_days": self_submitted_total,
             "expected_fraction_sum": expected_total,
             "expected_days": expected_total,
             "expected_display": "0.00",
             "ratio": None,
             "ratio_display": "N/A",
             "percentage": None,
+            "self_submitted_ratio": None,
+            "self_submitted_ratio_display": "N/A",
+            "self_submitted_percentage": None,
         }
     ratio = approved_total / expected_total
+    self_submitted_ratio = self_submitted_total / expected_total
     return {
         "days": days,
         "approved_days": approved_total,
+        "self_submitted_days": self_submitted_total,
         "expected_fraction_sum": expected_total,
         "expected_days": expected_total,
         "expected_display": f"{expected_total:.2f}",
         "ratio": ratio,
         "ratio_display": f"{percentage_up(ratio):.2f}%",
         "percentage": percentage_up(ratio),
+        "self_submitted_ratio": self_submitted_ratio,
+        "self_submitted_ratio_display": f"{percentage_up(self_submitted_ratio):.2f}%",
+        "self_submitted_percentage": percentage_up(self_submitted_ratio),
     }
 
 
@@ -83,6 +94,7 @@ def ratio_ledger(*, employee, start_date, end_date, as_of_date):
                     rule_version=None,
                     expected_fraction=baseline.target_days,
                     approval_credit=baseline.achieved_days,
+                    self_submitted_credit=baseline.achieved_days,
                     source="legacy_carry_forward",
                 )
             )
@@ -136,13 +148,12 @@ def ratio_ledger(*, employee, start_date, end_date, as_of_date):
             company=company, effective_from__lte=end_date, effective_to__gte=calculation_start
         )
     )
-    approved = set(
+    records = dict(
         WorkInOfficeRecord.objects.filter(
             employee=employee,
             work_date__range=(start_date, end_date),
-            review_state=WorkInOfficeRecord.ReviewState.APPROVED,
             location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
-        ).values_list("work_date", flat=True)
+        ).values_list("work_date", "review_state")
     )
     rows = list(legacy_rows)
     for current in dates:
@@ -180,7 +191,15 @@ def ratio_ledger(*, employee, start_date, end_date, as_of_date):
                 assignment_status=status,
                 rule_version=rule.pk if rule else None,
                 expected_fraction=expected,
-                approval_credit=Decimal("1") if current in approved else Decimal("0"),
+                approval_credit=Decimal("1")
+                if records.get(current) == "approved"
+                else Decimal("0"),
+                self_submitted_credit=(
+                    Decimal("1")
+                    if records.get(current)
+                    in {"pending", "pending_assignment", "approved", "rejected", "expired_pending"}
+                    else Decimal("0")
+                ),
             )
         )
     return calculate_ratio(rows)
