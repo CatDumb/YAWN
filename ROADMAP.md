@@ -37,6 +37,7 @@ MVP calculation rules:
 - Peer endorsements provide audit signal only; they do not approve logs.
 - Admin-managed floor plans for 1–2 office floors and selectable seats.
 - Monthly dashboard and custom date-range reports.
+- Optional employee-entered transition baseline for moving legacy target and achieved WIO totals into the current fiscal period; local WIO begins after its completed-month cutoff.
 - Audit history for edits, approvals, rejections, endorsements, and evidence access.
 
 ## Delivery phases
