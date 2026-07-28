@@ -12,6 +12,7 @@ from apps.work_logs.models import (
     EmployeeProjectAssignment,
     ProjectStatusRule,
     RemoteWorkException,
+    WioTransitionBaseline,
     WorkInOfficeRecord,
 )
 
@@ -25,6 +26,7 @@ class LedgerDay:
     rule_version: int | None
     expected_fraction: Decimal
     approval_credit: Decimal
+    source: str = "daily"
 
 
 def percentage_up(value: Decimal) -> Decimal:
@@ -67,13 +69,34 @@ def _covers(item, on_date):
 
 def ratio_ledger(*, employee, start_date, end_date, as_of_date):
     """Prepare a bounded number of queries, then delegate all math to ``calculate_ratio``."""
+    legacy_rows = []
+    calculation_start = start_date
+    baseline = WioTransitionBaseline.objects.filter(employee=employee).first()
+    if baseline:
+        if start_date <= baseline.cutoff_date <= end_date:
+            legacy_rows.append(
+                LedgerDay(
+                    date=baseline.cutoff_date,
+                    eligible=True,
+                    reason="Legacy carry-forward",
+                    assignment_status="legacy",
+                    rule_version=None,
+                    expected_fraction=baseline.target_days,
+                    approval_credit=baseline.achieved_days,
+                    source="legacy_carry_forward",
+                )
+            )
+        calculation_start = max(start_date, baseline.cutoff_date + timedelta(days=1))
+    if calculation_start > end_date:
+        return calculate_ratio(legacy_rows)
     dates = [
-        start_date + timedelta(days=offset) for offset in range((end_date - start_date).days + 1)
+        calculation_start + timedelta(days=offset)
+        for offset in range((end_date - calculation_start).days + 1)
     ]
     company = employee.company
     holidays = set(
         CompanyHoliday.objects.filter(
-            company=company, date__range=(start_date, end_date)
+            company=company, date__range=(calculation_start, end_date)
         ).values_list("date", flat=True)
     )
     leaves = list(
@@ -81,7 +104,7 @@ def ratio_ledger(*, employee, start_date, end_date, as_of_date):
             effective_to__isnull=True
         )
         | ApprovedLeave.objects.filter(
-            employee=employee, effective_from__lte=end_date, effective_to__gte=start_date
+            employee=employee, effective_from__lte=end_date, effective_to__gte=calculation_start
         )
     )
     remote = list(
@@ -89,7 +112,7 @@ def ratio_ledger(*, employee, start_date, end_date, as_of_date):
             effective_to__isnull=True
         )
         | RemoteWorkException.objects.filter(
-            employee=employee, effective_from__lte=end_date, effective_to__gte=start_date
+            employee=employee, effective_from__lte=end_date, effective_to__gte=calculation_start
         )
     )
     assignments = list(
@@ -97,7 +120,7 @@ def ratio_ledger(*, employee, start_date, end_date, as_of_date):
             employee=employee, effective_from__lte=end_date
         ).filter(effective_to__isnull=True)
         | EmployeeProjectAssignment.objects.filter(
-            employee=employee, effective_from__lte=end_date, effective_to__gte=start_date
+            employee=employee, effective_from__lte=end_date, effective_to__gte=calculation_start
         )
     )
     assignments = list(
@@ -110,7 +133,7 @@ def ratio_ledger(*, employee, start_date, end_date, as_of_date):
             effective_to__isnull=True
         )
         | ProjectStatusRule.objects.filter(
-            company=company, effective_from__lte=end_date, effective_to__gte=start_date
+            company=company, effective_from__lte=end_date, effective_to__gte=calculation_start
         )
     )
     approved = set(
@@ -121,7 +144,7 @@ def ratio_ledger(*, employee, start_date, end_date, as_of_date):
             location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
         ).values_list("work_date", flat=True)
     )
-    rows = []
+    rows = list(legacy_rows)
     for current in dates:
         reasons = []
         if current.weekday() >= 5:

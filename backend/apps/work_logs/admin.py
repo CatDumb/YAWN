@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.shortcuts import redirect
@@ -17,8 +18,10 @@ from apps.work_logs.models import (
     Project,
     ProjectStatusRule,
     RemoteWorkException,
+    WioTransitionBaseline,
     WorkInOfficeRecord,
 )
+from apps.work_logs.services import save_transition_baseline
 
 
 class AuditedAdmin(admin.ModelAdmin):
@@ -221,6 +224,49 @@ class WorkInOfficeRecordAdmin(EmployeeScopedAdmin):
                 target_id=str(record.pk),
                 metadata={"deadline": extended_deadline.isoformat(), "reason": reason},
             )
+
+
+class TransitionBaselineAdminForm(forms.ModelForm):
+    correction_reason = forms.CharField(required=True, max_length=240)
+
+    class Meta:
+        model = WioTransitionBaseline
+        fields = [
+            "employee",
+            "period",
+            "cutoff_date",
+            "target_days",
+            "achieved_days",
+            "version",
+            "correction_reason",
+        ]
+
+
+@admin.register(WioTransitionBaseline)
+class TransitionBaselineAdmin(EmployeeScopedAdmin):
+    form = TransitionBaselineAdminForm
+    list_display = ("employee", "cutoff_date", "target_days", "achieved_days", "version")
+    readonly_fields = ("employee", "period", "cutoff_date", "version", "created_at", "updated_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            return
+        save_transition_baseline(
+            employee=obj.employee,
+            cutoff_month=obj.cutoff_date.replace(day=1),
+            target_days=obj.target_days,
+            achieved_days=obj.achieved_days,
+            version=obj.version,
+            actor=request.user,
+            correction_reason=form.cleaned_data["correction_reason"],
+            allow_locked_correction=True,
+        )
 
 
 admin.site.register(BaseLocation, AuditedAdmin)

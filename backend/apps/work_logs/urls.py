@@ -14,6 +14,7 @@ from apps.work_logs.planner_views import (
 )
 from apps.work_logs.profile_views import ProfileView
 from apps.work_logs.report_views import ReportCSVView, ReportView
+from apps.work_logs.transition_views import TransitionBaselineView
 from apps.work_logs.views import (
     ApprovalAssigneeView,
     ApprovalCountView,
@@ -44,6 +45,11 @@ urlpatterns = [
     ),
     path("reports/", ReportView.as_view(), name="report"),
     path("reports/csv/", ReportCSVView.as_view(), name="report-csv"),
+    path(
+        "transition-baseline/",
+        TransitionBaselineView.as_view(),
+        name="transition-baseline",
+    ),
     path("planner/", PlannerIntentionsView.as_view(), name="planner-intentions"),
     path(
         "planner/<int:pk>/",

@@ -186,6 +186,7 @@ class DashboardRatioView(APIView):
                 "period_state": period.derived_state,
                 "reconciliation_cutoff": period.reconciliation_cutoff,
                 "revision": report["revision"].revision if report["revision"] else None,
+                "baseline_included": report["baseline_included"],
             }
         )
 

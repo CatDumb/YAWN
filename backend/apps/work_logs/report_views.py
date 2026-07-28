@@ -77,6 +77,7 @@ class ReportView(APIView):
                 "pending_assignment_count": report["pending_assignment_count"],
                 "period_state": report["period"].derived_state,
                 "revision": report["revision"].revision if report["revision"] else None,
+                "baseline_included": report["baseline_included"],
                 "start_date": start,
                 "end_date": end,
                 "ledger": report["ledger"],

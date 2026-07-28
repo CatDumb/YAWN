@@ -5,6 +5,20 @@ from apps.audit.models import AuditEvent
 from apps.work_logs.models import WorkInOfficeRecord
 
 
+class TransitionBaselineInputSerializer(serializers.Serializer):
+    cutoff_month = serializers.DateField(input_formats=["%Y-%m"], format="%Y-%m")
+    target_days = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=0)
+    achieved_days = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=0)
+    version = serializers.IntegerField(min_value=1, required=False)
+
+    def validate(self, attrs):
+        if attrs["target_days"] == 0 and attrs["achieved_days"] != 0:
+            raise serializers.ValidationError(
+                {"achieved_days": "Achieved days must be zero when target days are zero."}
+            )
+        return attrs
+
+
 class WorkInOfficeRecordSerializer(serializers.ModelSerializer):
     employee_name = serializers.SerializerMethodField()
     employee_email = serializers.EmailField(source="employee.user.email", read_only=True)

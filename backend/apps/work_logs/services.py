@@ -1,4 +1,5 @@
-from datetime import datetime, time, timedelta
+from calendar import monthrange
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -13,9 +14,11 @@ from apps.work_logs.models import (
     ApprovedLeave,
     CompanyHoliday,
     EmployeeProjectAssignment,
+    FinalizedLedgerRevision,
     FiscalPeriod,
     ProjectStatusRule,
     RemoteWorkException,
+    WioTransitionBaseline,
     WorkInOfficeRecord,
 )
 
@@ -83,6 +86,11 @@ def snapshot_for(employee, work_date):
 
 
 def validate_record_date(employee, work_date):
+    baseline = WioTransitionBaseline.objects.filter(employee=employee).first()
+    if baseline and work_date <= baseline.cutoff_date:
+        raise ValidationError(
+            "This date belongs to your legacy transition balance. New WIO starts after its cutoff."
+        )
     today = company_today()
     if work_date > today:
         raise ValidationError("Future dates belong in Planner.")
@@ -185,6 +193,7 @@ def save_record(
     actor=None,
     override_reason=None,
 ):
+    employee = CompanyMembership.objects.select_for_update().get(pk=employee.pk)
     record = (
         WorkInOfficeRecord.objects.select_for_update()
         .filter(employee=employee, work_date=work_date)
@@ -212,6 +221,11 @@ def save_record(
             raise ValidationError(
                 "The fiscal period is final; HR/admin must reopen it for correction."
             )
+    baseline = WioTransitionBaseline.objects.filter(employee=employee).first()
+    if baseline and work_date <= baseline.cutoff_date:
+        raise ValidationError(
+            "This date belongs to your legacy transition balance. New WIO starts after its cutoff."
+        )
     if delete_draft:
         if not record or record.review_state != WorkInOfficeRecord.ReviewState.DRAFT:
             raise ValidationError("Only drafts can be deleted.")
@@ -288,3 +302,194 @@ def save_record(
         to_state=record.review_state,
     )
     return record
+
+
+def _cutoff_date_for_month(cutoff_month):
+    return date(
+        cutoff_month.year,
+        cutoff_month.month,
+        monthrange(cutoff_month.year, cutoff_month.month)[1],
+    )
+
+
+def transition_baseline_locked(employee, baseline):
+    return WorkInOfficeRecord.objects.filter(
+        employee=employee, work_date__gt=baseline.cutoff_date
+    ).exists()
+
+
+def _latest_transition_cutoff(employee):
+    """Return the latest safe month-end for a baseline, or ``None``.
+
+    Existing WIO belongs to the employee, rather than their approval queue.  A
+    carry-forward may therefore end on the month before the employee's first
+    local record, provided both dates remain in the same mutable fiscal period.
+    """
+    first_record = (
+        WorkInOfficeRecord.objects.filter(employee=employee).order_by("work_date", "pk").first()
+    )
+    if first_record:
+        cutoff_date = first_record.work_date.replace(day=1) - timedelta(days=1)
+    else:
+        cutoff_date = company_today().replace(day=1) - timedelta(days=1)
+
+    if cutoff_date >= company_today():
+        return None
+    period = _period_for(employee, cutoff_date)
+    if period is None or period.state == FiscalPeriod.State.FINAL:
+        return None
+    if FinalizedLedgerRevision.objects.filter(period=period, employee=employee).exists():
+        return None
+    if first_record:
+        first_period = _period_for(employee, first_record.work_date)
+        if first_period is None or first_period.pk != period.pk:
+            return None
+    return cutoff_date
+
+
+def transition_baseline_state(employee):
+    baseline = (
+        WioTransitionBaseline.objects.filter(employee=employee).select_related("period").first()
+    )
+    if baseline is None:
+        latest_cutoff = _latest_transition_cutoff(employee)
+        return {
+            "baseline": None,
+            "eligible": latest_cutoff is not None,
+            "lock_reason": (
+                None
+                if latest_cutoff
+                else "No completed transition month is available in an unfinalized fiscal period."
+            ),
+            "latest_cutoff_month": latest_cutoff.strftime("%Y-%m") if latest_cutoff else None,
+        }
+    locked = transition_baseline_locked(employee, baseline)
+    return {
+        "baseline": baseline,
+        "eligible": False,
+        "locked": locked,
+        "lock_reason": "A post-cutoff WIO record exists." if locked else None,
+        "latest_cutoff_month": None,
+    }
+
+
+def _transition_period(employee, cutoff_date):
+    period = FiscalPeriod.objects.filter(
+        company=employee.company,
+        start_date__lte=cutoff_date,
+        end_date__gte=cutoff_date,
+    ).first()
+    if period is None:
+        raise ValidationError("Transition cutoff must fall inside one fiscal period.")
+    if (
+        period.state == FiscalPeriod.State.FINAL
+        or FinalizedLedgerRevision.objects.filter(period=period, employee=employee).exists()
+    ):
+        raise ValidationError("A finalized fiscal period cannot receive a transition baseline.")
+    return period
+
+
+def _validate_transition_values(*, cutoff_month, target_days, achieved_days):
+    cutoff_date = _cutoff_date_for_month(cutoff_month)
+    if cutoff_date >= company_today():
+        raise ValidationError("Transition cutoff month must be completed.")
+    if target_days < 0 or achieved_days < 0:
+        raise ValidationError("Transition days must be non-negative.")
+    if target_days == 0 and achieved_days != 0:
+        raise ValidationError("Achieved days must be zero when target days are zero.")
+    return cutoff_date
+
+
+def audit_transition_baseline(*, actor, event_type, baseline, reason=None):
+    metadata = {
+        "cutoff_date": baseline.cutoff_date.isoformat(),
+        "target_days": str(baseline.target_days),
+        "achieved_days": str(baseline.achieved_days),
+        "version": baseline.version,
+    }
+    if reason:
+        metadata["reason"] = reason
+    AuditEvent.objects.create(
+        actor=actor,
+        event_type=event_type,
+        target_type="work_logs.WioTransitionBaseline",
+        target_id=str(baseline.pk),
+        metadata=metadata,
+    )
+
+
+@transaction.atomic
+def save_transition_baseline(
+    *,
+    employee,
+    cutoff_month,
+    target_days,
+    achieved_days,
+    actor,
+    version=None,
+    correction_reason=None,
+    allow_locked_correction=False,
+):
+    """Create/update a one-time legacy aggregate without racing WIO creation."""
+    employee = CompanyMembership.objects.select_for_update().get(pk=employee.pk)
+    cutoff_date = _validate_transition_values(
+        cutoff_month=cutoff_month,
+        target_days=target_days,
+        achieved_days=achieved_days,
+    )
+    period = _transition_period(employee, cutoff_date)
+    baseline = WioTransitionBaseline.objects.select_for_update().filter(employee=employee).first()
+    if baseline is None:
+        first_record = (
+            WorkInOfficeRecord.objects.filter(employee=employee).order_by("work_date", "pk").first()
+        )
+        if first_record and first_record.work_date <= cutoff_date:
+            raise ValidationError("Transition cutoff must precede your earliest local WIO record.")
+        if first_record:
+            first_period = _period_for(employee, first_record.work_date)
+            if first_period is None or first_period.pk != period.pk:
+                raise ValidationError(
+                    "Transition cutoff and existing WIO must belong to the same fiscal period."
+                )
+        baseline = WioTransitionBaseline.objects.create(
+            employee=employee,
+            period=period,
+            cutoff_date=cutoff_date,
+            target_days=target_days,
+            achieved_days=achieved_days,
+        )
+        audit_transition_baseline(
+            actor=actor,
+            event_type="work_logs.transition_baseline_created",
+            baseline=baseline,
+        )
+        return baseline
+
+    if version is None or baseline.version != version:
+        raise RuntimeError("stale")
+    locked = transition_baseline_locked(employee, baseline)
+    if locked and not allow_locked_correction:
+        raise ValidationError("Transition baseline is locked after post-cutoff WIO begins.")
+    if locked and cutoff_date != baseline.cutoff_date:
+        raise ValidationError("Locked transition cutoff cannot change.")
+    if locked and not correction_reason:
+        raise ValidationError("HR/admin correction reason is required.")
+
+    baseline.period = period
+    baseline.cutoff_date = cutoff_date
+    baseline.target_days = target_days
+    baseline.achieved_days = achieved_days
+    baseline.version += 1
+    baseline.full_clean()
+    baseline.save()
+    audit_transition_baseline(
+        actor=actor,
+        event_type=(
+            "work_logs.transition_baseline_corrected"
+            if locked
+            else "work_logs.transition_baseline_updated"
+        ),
+        baseline=baseline,
+        reason=correction_reason,
+    )
+    return baseline

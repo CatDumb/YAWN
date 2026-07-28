@@ -6,7 +6,12 @@ from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 from django.utils import timezone
 
-from apps.work_logs.models import FinalizedLedgerRevision, FiscalPeriod, WorkInOfficeRecord
+from apps.work_logs.models import (
+    FinalizedLedgerRevision,
+    FiscalPeriod,
+    WioTransitionBaseline,
+    WorkInOfficeRecord,
+)
 from apps.work_logs.ratio import calculate_ratio, ratio_ledger
 
 CSV_COPY = {
@@ -69,6 +74,7 @@ def _as_json_day(day, record=None):
         "approval_credit": str(day.approval_credit),
         "review_state": record.review_state if record else None,
         "location_choice": record.location_choice if record else None,
+        "source": day.source,
     }
 
 
@@ -78,6 +84,9 @@ def report_for(*, employee, start_date, end_date):
     period = period_for(employee.company, start_date)
     if end_date > period.end_date:
         raise ValidationError("Cross-period calculations are not supported.")
+    baseline = WioTransitionBaseline.objects.filter(employee=employee).first()
+    if baseline and end_date < baseline.cutoff_date:
+        raise ValidationError("Legacy daily history is unavailable before the transition cutoff.")
     revision = None
     frozen_rows_by_date = None
     if period.state == FiscalPeriod.State.FINAL:
@@ -108,6 +117,7 @@ def report_for(*, employee, start_date, end_date):
                     rule_version=row["rule_version"],
                     expected_fraction=Decimal(row["expected_fraction"]),
                     approval_credit=Decimal(row["approval_credit"]),
+                    source=row.get("source", "daily"),
                 )
                 for row in rows
             ]
@@ -144,6 +154,7 @@ def report_for(*, employee, start_date, end_date):
             if frozen_rows_by_date is not None
             else _as_json_day(day, records.get(day.date))
         )
+        row.setdefault("source", "daily")
         ledger.append(row)
     return {
         **result,
@@ -152,6 +163,7 @@ def report_for(*, employee, start_date, end_date):
         "pending_count": pending,
         "pending_assignment_count": pending_assignment,
         "ledger": ledger,
+        "baseline_included": bool(baseline and start_date <= baseline.cutoff_date <= end_date),
     }
 
 

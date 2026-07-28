@@ -1,5 +1,6 @@
 # ruff: noqa: DJ012
 
+from calendar import monthrange
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -324,6 +325,64 @@ class WorkInOfficeRecord(models.Model):
             self.ReviewState.APPROVED,
             self.ReviewState.EXPIRED_PENDING,
         }
+
+
+class WioTransitionBaseline(models.Model):
+    """One-time aggregate carry-forward from the predecessor WIO system."""
+
+    employee = models.OneToOneField(
+        CompanyMembership,
+        on_delete=models.PROTECT,
+        related_name="transition_baseline",
+    )
+    period = models.ForeignKey(
+        FiscalPeriod,
+        on_delete=models.PROTECT,
+        related_name="transition_baselines",
+    )
+    cutoff_date = models.DateField()
+    target_days = models.DecimalField(max_digits=10, decimal_places=2)
+    achieved_days = models.DecimalField(max_digits=10, decimal_places=2)
+    version = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(target_days__gte=0),
+                name="work_logs_transition_target_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(achieved_days__gte=0),
+                name="work_logs_transition_achieved_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(target_days__gt=0) | Q(achieved_days=0),
+                name="work_logs_transition_zero_target_zero_achieved",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if (
+            self.employee_id
+            and self.period_id
+            and self.employee.company_id != self.period.company_id
+        ):
+            raise ValidationError(
+                "Transition baseline and fiscal period must belong to one company."
+            )
+        if (
+            self.cutoff_date
+            and self.cutoff_date.day != monthrange(self.cutoff_date.year, self.cutoff_date.month)[1]
+        ):
+            raise ValidationError("Transition cutoff must be the final day of its month.")
+        if self.target_days == 0 and self.achieved_days != 0:
+            raise ValidationError("Achieved days must be zero when target days are zero.")
+
+    def __str__(self):
+        return f"{self.employee} transition through {self.cutoff_date}"
 
 
 class FiscalFinalizationStep(models.Model):
