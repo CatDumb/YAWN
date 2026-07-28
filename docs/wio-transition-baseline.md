@@ -22,7 +22,9 @@ YAWN records the baseline as one **Legacy carry-forward** ledger row on cutoff m
 
 `live target = legacy target + new expected project-status fractions`
 
-`live achieved = legacy achieved + new approved in-office WIO days`
+`live approved = legacy achieved + new approved in-office WIO days`
+
+The legacy achieved value also contributes to the separate self-submitted audit stream. Legacy daily review state is unavailable, so both streams use the same carry-forward credit for this synthetic row.
 
 Reports containing cutoff include this synthetic row. Reports starting after cutoff contain local history only. Reports ending before cutoff return an error because legacy daily detail is unavailable. The carry-forward is limited to its fiscal period and is included in CSV exports and finalized ledger revisions.
 
