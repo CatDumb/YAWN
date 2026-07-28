@@ -27,7 +27,7 @@ from apps.work_logs.serializers import (
     AuditEventSerializer,
     WorkInOfficeRecordSerializer,
 )
-from apps.work_logs.services import company_today, save_record
+from apps.work_logs.services import company_today, save_record, undo_self_approval
 
 logger = logging.getLogger("wio.work_logs")
 
@@ -252,6 +252,26 @@ class WorkInOfficeDetailView(APIView):
                 error=error,
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class SelfApprovalUndoView(APIView):
+    @extend_schema(request=OpenApiTypes.OBJECT, responses=WorkInOfficeRecordSerializer)
+    def post(self, request, pk):
+        membership = membership_for(request.user)
+        try:
+            record = undo_self_approval(
+                employee=membership,
+                record_id=pk,
+                version=request.data.get("version"),
+                actor=request.user,
+            )
+        except RuntimeError:
+            return Response(
+                {"detail": "Record changed. Reload latest state and retry."}, status=409
+            )
+        except DjangoValidationError as error:
+            return Response({"detail": error.messages[0]}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(WorkInOfficeRecordSerializer(record).data)
 
 
 class ApprovalQueueView(APIView):

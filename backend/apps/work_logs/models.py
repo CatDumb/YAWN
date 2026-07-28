@@ -274,6 +274,10 @@ class WorkInOfficeRecord(models.Model):
         NOT_REQUIRED = "not_required", "Not required"
         EXPIRED_PENDING = "expired_pending", "Expired pending"
 
+    class ApprovalMethod(models.TextChoices):
+        MANAGER_APPROVED = "manager_approved", "Manager approved"
+        SELF_APPROVED = "self_approved", "Self approved"
+
     employee = models.ForeignKey(
         CompanyMembership, on_delete=models.PROTECT, related_name="wio_records"
     )
@@ -297,13 +301,23 @@ class WorkInOfficeRecord(models.Model):
     submitted_at = models.DateTimeField(null=True, blank=True)
     approved_at = models.DateTimeField(null=True, blank=True)
     approved_by_snapshot = models.JSONField(default=dict, blank=True)
+    approval_method = models.CharField(
+        max_length=24, choices=ApprovalMethod.choices, null=True, blank=True
+    )
 
     class Meta:
         ordering = ["-work_date", "-updated_at"]
         constraints = [
             models.UniqueConstraint(
                 fields=["employee", "work_date"], name="work_logs_one_record_per_employee_day"
-            )
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(review_state="approved", approval_method__isnull=False)
+                    | (~Q(review_state="approved") & Q(approval_method__isnull=True))
+                ),
+                name="work_logs_approval_method_matches_state",
+            ),
         ]
 
     def clean(self):

@@ -116,12 +116,14 @@ def approve_record(*, manager, record_id, version):
     record.review_state = WorkInOfficeRecord.ReviewState.APPROVED
     record.approved_at = timezone.now()
     record.approved_by_snapshot = {"membership_id": manager.pk, "role": manager.role}
+    record.approval_method = WorkInOfficeRecord.ApprovalMethod.MANAGER_APPROVED
     record.version += 1
     record.save(
         update_fields=[
             "review_state",
             "approved_at",
             "approved_by_snapshot",
+            "approval_method",
             "version",
             "updated_at",
         ]
@@ -150,6 +152,8 @@ def undo_approval(*, manager, record_id, version):
         or record.employee.company_id != manager.company_id
         or record.approved_by_snapshot.get("membership_id") != manager.pk
         or record.review_state != WorkInOfficeRecord.ReviewState.APPROVED
+        or record.approval_method
+        != WorkInOfficeRecord.ApprovalMethod.MANAGER_APPROVED
     ):
         raise ValidationError("Approval is unavailable for undo.")
     if version is None or record.version != version:
@@ -158,8 +162,11 @@ def undo_approval(*, manager, record_id, version):
         raise ValidationError("The 10-second undo window has expired.")
     record.review_state = WorkInOfficeRecord.ReviewState.PENDING
     record.approved_at = None
+    record.approval_method = None
     record.version += 1
-    record.save(update_fields=["review_state", "approved_at", "version", "updated_at"])
+    record.save(
+        update_fields=["review_state", "approved_at", "approval_method", "version", "updated_at"]
+    )
     audit_record(actor=manager.user, event_type="work_logs.approval_undone", record=record)
     return record
 

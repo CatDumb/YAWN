@@ -258,26 +258,52 @@ def save_record(
         "rule": snapshot["rule"],
     }
     if location_choice == WorkInOfficeRecord.LocationChoice.IN_OFFICE:
-        manager = effective_manager(employee, work_date)
-        record.approval_owner_snapshot = (
-            {"membership_id": manager.manager_id, "assignment_id": manager.pk} if manager else {}
-        )
-        record.review_state = (
-            WorkInOfficeRecord.ReviewState.PENDING
-            if manager
-            else WorkInOfficeRecord.ReviewState.PENDING_ASSIGNMENT
-        )
         record.submitted_at = timezone.now()
+        if employee.role in {
+            CompanyMembership.Role.MANAGER,
+            CompanyMembership.Role.HR_ADMIN,
+        }:
+            record.review_state = WorkInOfficeRecord.ReviewState.APPROVED
+            record.approval_method = WorkInOfficeRecord.ApprovalMethod.SELF_APPROVED
+            record.approved_at = record.submitted_at
+            record.approved_by_snapshot = {
+                "membership_id": employee.pk,
+                "role": employee.role,
+            }
+            record.approval_owner_snapshot = {}
+        else:
+            manager = effective_manager(employee, work_date)
+            record.approval_owner_snapshot = (
+                {"membership_id": manager.manager_id, "assignment_id": manager.pk}
+                if manager
+                else {}
+            )
+            record.review_state = (
+                WorkInOfficeRecord.ReviewState.PENDING
+                if manager
+                else WorkInOfficeRecord.ReviewState.PENDING_ASSIGNMENT
+            )
+            record.approval_method = None
+            record.approved_at = None
+            record.approved_by_snapshot = {}
     elif location_choice == WorkInOfficeRecord.LocationChoice.NOT_IN_OFFICE:
         record.review_state = WorkInOfficeRecord.ReviewState.NOT_REQUIRED
         record.submitted_at = timezone.now()
+        record.approval_method = None
+        record.approved_at = None
+        record.approved_by_snapshot = {}
     else:
         record.review_state = WorkInOfficeRecord.ReviewState.DRAFT
+        record.approval_method = None
+        record.approved_at = None
+        record.approved_by_snapshot = {}
     record.version = (record.version or 0) + (1 if record.pk else 0)
     record.full_clean()
     record.save()
     event = (
-        "work_logs.record_submitted"
+        "work_logs.record_self_approved"
+        if record.approval_method == WorkInOfficeRecord.ApprovalMethod.SELF_APPROVED
+        else "work_logs.record_submitted"
         if record.review_state
         in {
             WorkInOfficeRecord.ReviewState.PENDING,
@@ -301,6 +327,44 @@ def save_record(
         from_state=old_state,
         to_state=record.review_state,
     )
+    return record
+
+
+@transaction.atomic
+def undo_self_approval(*, employee, record_id, version, actor):
+    record = (
+        WorkInOfficeRecord.objects.select_for_update()
+        .filter(pk=record_id, employee=employee)
+        .first()
+    )
+    if (
+        record is None
+        or record.review_state != WorkInOfficeRecord.ReviewState.APPROVED
+        or record.approval_method != WorkInOfficeRecord.ApprovalMethod.SELF_APPROVED
+    ):
+        raise ValidationError("Self-approval undo is unavailable.")
+    if version is None or record.version != version:
+        raise RuntimeError("stale")
+    if record.approved_at is None or timezone.now() > record.approved_at + timedelta(seconds=10):
+        raise ValidationError("The 10-second self-approval undo window has expired.")
+    record.review_state = WorkInOfficeRecord.ReviewState.DRAFT
+    record.approved_at = None
+    record.approved_by_snapshot = {}
+    record.approval_method = None
+    record.approval_owner_snapshot = {}
+    record.version += 1
+    record.save(
+        update_fields=[
+            "review_state",
+            "approved_at",
+            "approved_by_snapshot",
+            "approval_method",
+            "approval_owner_snapshot",
+            "version",
+            "updated_at",
+        ]
+    )
+    audit_record(actor=actor, event_type="work_logs.self_approval_undone", record=record)
     return record
 
 

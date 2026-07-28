@@ -21,6 +21,7 @@ from apps.work_logs.views import (
     ApprovalDecisionView,
     ApprovalQueueView,
     PendingAssignmentQueueView,
+    SelfApprovalUndoView,
     WorkInOfficeDetailView,
     WorkInOfficeListCreateView,
     WorkInOfficeMetadataView,
@@ -31,6 +32,11 @@ urlpatterns = [
     path("work-in-office/meta/", WorkInOfficeMetadataView.as_view(), name="work-in-office-meta"),
     path(
         "work-in-office/<int:pk>/", WorkInOfficeDetailView.as_view(), name="work-in-office-detail"
+    ),
+    path(
+        "work-in-office/<int:pk>/undo-self-approval/",
+        SelfApprovalUndoView.as_view(),
+        name="work-in-office-undo-self-approval",
     ),
     path("approvals/", ApprovalQueueView.as_view(), name="approval-queue"),
     path(
