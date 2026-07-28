@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { AppPage } from "@/features/app-shell/app-page";
+import { TransitionBaselineCard } from "@/features/work-in-office/transition-baseline-card";
 import { apiFetch } from "@/lib/api";
 import { apiErrorFromResponse, userFacingError } from "@/lib/errors";
 import { formatMessage, languageFromDocument, messagesFor } from "@/lib/i18n";
@@ -485,6 +486,8 @@ export default function DashboardPage() {
           </h1>
           <p className="text-base-content/70 mt-2 max-w-2xl">{copy.intro}</p>
         </header>
+
+        <TransitionBaselineCard onSaved={loadRatio} />
 
         <div className="grid gap-5 lg:grid-cols-2">
           <Module
