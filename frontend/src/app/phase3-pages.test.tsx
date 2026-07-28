@@ -54,8 +54,13 @@ function responseFor(url: string) {
       available: true,
       ratio_display: "111.12%",
       approved_days: "2",
+      self_submitted_days: "2",
       expected_display: "1.80",
       balance: "0.20",
+      self_submitted_balance: "0.20",
+      self_submitted_ratio_display: "111.12%",
+      self_submitted_percentage: "111.12",
+      self_approval_applies: false,
       remaining_eligible_days: 5,
       pending_count: 1,
       pending_assignment_count: 1,
@@ -184,10 +189,15 @@ function responseFor(url: string) {
   if (url.startsWith("/api/v1/reports/")) {
     return response({
       approved_days: "2",
+      self_submitted_days: "2",
       expected_fraction_sum: "1.80",
       expected_display: "1.80",
       ratio_display: "111.12%",
       balance: "0.20",
+      self_submitted_balance: "0.20",
+      self_submitted_ratio_display: "111.12%",
+      self_submitted_percentage: "111.12",
+      self_approval_applies: false,
       percentage: "111.12",
       pending_count: 1,
       pending_assignment_count: 1,
@@ -212,6 +222,8 @@ function responseFor(url: string) {
         rule_version: review_state === null ? null : 1,
         expected_fraction: "1.00",
         approval_credit: "1.00",
+        self_submitted_credit: "1.00",
+        approval_method: review_state === "approved" ? "manager_approved" : null,
         review_state,
         location_choice: "in_office",
       })),
@@ -326,11 +338,11 @@ describe("Phase 3 page contracts", () => {
   it("renders factual reports from one shared report response", async () => {
     render(<ReportsPage />);
 
-    expect(await screen.findByText("111.12%")).toBeInTheDocument();
+    expect(await screen.findAllByText("111.12%")).not.toHaveLength(0);
     expect(screen.getByLabelText("Ratio ledger")).toHaveTextContent(
       "Same base",
     );
-    expect(screen.getAllByText("Approved")).toHaveLength(2);
+    expect(screen.getAllByText("Approved")).toHaveLength(3);
   });
 
   it("exports the currently rendered factual report without changing its range", async () => {
@@ -344,7 +356,7 @@ describe("Phase 3 page contracts", () => {
     });
     render(<ReportsPage />);
 
-    await screen.findByText("111.12%");
+    await screen.findAllByText("111.12%");
     fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith(
@@ -484,7 +496,7 @@ describe("Phase 3 page contracts", () => {
   it("renders Monday-first heatmap calendar, aligned legend, and non-color states", async () => {
     render(<DashboardPage />);
 
-    expect(await screen.findByText("111.12%")).toBeInTheDocument();
+    expect(await screen.findAllByText("111.12%")).not.toHaveLength(0);
     fireEvent.change(screen.getByLabelText("Dashboard month"), {
       target: { value: "2026-07" },
     });
@@ -587,7 +599,7 @@ describe("Phase 3 page contracts", () => {
     document.documentElement.lang = "vi";
     render(<DashboardPage />);
 
-    await screen.findByText("111.12%");
+    await screen.findAllByText("111.12%");
     const heatmap = screen.getByLabelText(
       "Bản đồ nhiệt làm việc tại văn phòng theo tháng",
     );
@@ -617,7 +629,7 @@ describe("Phase 3 page contracts", () => {
     });
     render(<DashboardPage />);
 
-    expect(await screen.findByText("111.12%")).toBeInTheDocument();
+    expect(await screen.findAllByText("111.12%")).not.toHaveLength(0);
     const stableCalls = apiFetch.mock.calls.filter(([url]) =>
       ["/api/v1/dashboard/today/", "/api/v1/dashboard/ratio/"].includes(
         String(url),
@@ -643,7 +655,7 @@ describe("Phase 3 page contracts", () => {
         ),
       ),
     ).toHaveLength(stableCalls);
-    expect(screen.getByText("111.12%")).toBeInTheDocument();
+    expect(screen.getAllByText("111.12%")).not.toHaveLength(0);
     expect(screen.queryByLabelText("Loading dashboard module")).toBeNull();
     const heatmapModule = screen.getByLabelText(
       "Monthly work-in-office heatmap",
