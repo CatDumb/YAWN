@@ -22,7 +22,7 @@ def freeze_business_date(monkeypatch):
         "apps.work_logs.services",
         "apps.work_logs.views",
     ):
-        monkeypatch.setattr(f"{module}.company_today", lambda: fixed_date)
+        monkeypatch.setattr(f"{module}.company_today", lambda *_args: fixed_date)
 
 
 @pytest.fixture(autouse=True)

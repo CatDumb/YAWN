@@ -1,12 +1,14 @@
 import uuid
 from datetime import date
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q
+from django.utils import timezone
 
 
 class UserManager(BaseUserManager):
@@ -155,23 +157,43 @@ class ManagerAssignment(models.Model):
     effective_to = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["manager", "employee"],
-                name="accounts_manager_employee_unique",
-            )
-        ]
-
     def __str__(self):
         return f"{self.manager.user.email} manages {self.employee.user.email}"
 
+    @transaction.atomic
     def save(self, *args, **kwargs):
+        if self.employee_id:
+            CompanyMembership.objects.select_for_update().get(pk=self.employee_id)
         self.full_clean()
         super().save(*args, **kwargs)
 
     def clean(self):
         super().clean()
+        if self.pk and self.employee_id:
+            original = ManagerAssignment.objects.filter(pk=self.pk).first()
+            if original:
+                today = timezone.now().astimezone(ZoneInfo(self.employee.company.timezone)).date()
+                if original.effective_from <= today:
+                    changed = any(
+                        getattr(original, field) != getattr(self, field)
+                        for field in (
+                            "manager_id",
+                            "employee_id",
+                            "is_active",
+                            "effective_from",
+                        )
+                    )
+                    end_changed = original.effective_to != self.effective_to
+                    unsafe_end_change = end_changed and (
+                        (original.effective_to is not None and original.effective_to < today)
+                        or self.effective_to is None
+                        or self.effective_to < today
+                    )
+                    if changed or unsafe_end_change:
+                        raise ValidationError(
+                            "Started manager assignments are immutable; append a "
+                            "future-dated correction."
+                        )
         if self.manager_id == self.employee_id:
             raise ValidationError("Manager and employee must be different memberships.")
         if self.manager.company_id != self.employee.company_id:
@@ -191,6 +213,14 @@ class ManagerAssignment(models.Model):
         )
         if self.is_active and overlaps.exists():
             raise ValidationError("Manager assignments cannot overlap.")
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        CompanyMembership.objects.select_for_update().get(pk=self.employee_id)
+        today = timezone.now().astimezone(ZoneInfo(self.employee.company.timezone)).date()
+        if self.effective_from <= today:
+            raise ValidationError("Started manager assignments cannot be deleted.")
+        return super().delete(*args, **kwargs)
 
 
 class AccessRequest(models.Model):

@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -23,6 +23,33 @@ class EffectiveDatedModel(models.Model):
     def clean(self):
         if self.effective_to and self.effective_to < self.effective_from:
             raise ValidationError("End date cannot be before start date.")
+
+    def _validate_started_version(self, *, company, immutable_fields, label):
+        if not self.pk:
+            return
+        original = type(self).objects.filter(pk=self.pk).first()
+        if original is None:
+            return
+        today = timezone.now().astimezone(ZoneInfo(company.timezone)).date()
+        if original.effective_from > today:
+            return
+        changed = any(
+            getattr(original, field) != getattr(self, field) for field in immutable_fields
+        )
+        end_changed = original.effective_to != self.effective_to
+        unsafe_end_change = end_changed and (
+            (original.effective_to is not None and original.effective_to < today)
+            or self.effective_to is None
+            or self.effective_to < today
+        )
+        if changed or unsafe_end_change:
+            raise ValidationError(
+                f"Started {label} versions are immutable; append a future-dated correction."
+            )
+
+    def _started(self, *, company):
+        today = timezone.now().astimezone(ZoneInfo(company.timezone)).date()
+        return self.effective_from <= today
 
 
 class FiscalPeriod(models.Model):  # noqa: DJ012
@@ -143,6 +170,126 @@ class Project(models.Model):
         return self.name
 
 
+class EmployeeBaseLocationAssignment(EffectiveDatedModel):
+    employee = models.ForeignKey(
+        CompanyMembership,
+        on_delete=models.PROTECT,
+        related_name="base_location_assignments",
+    )
+    base_location = models.ForeignKey(
+        BaseLocation,
+        on_delete=models.PROTECT,
+        related_name="employee_assignments",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-effective_from"]
+
+    def clean(self):
+        super().clean()
+        if self.employee_id:
+            self._validate_started_version(
+                company=self.employee.company,
+                immutable_fields=("employee_id", "base_location_id", "effective_from"),
+                label="employee base-location",
+            )
+        if self.employee_id and self.base_location_id:
+            if self.employee.company_id != self.base_location.company_id:
+                raise ValidationError("Employee and base location must belong to the same company.")
+        overlaps = (
+            EmployeeBaseLocationAssignment.objects.filter(employee=self.employee)
+            .exclude(pk=self.pk)
+            .filter(effective_from__lte=self.effective_to or date.max)
+            .filter(Q(effective_to__isnull=True) | Q(effective_to__gte=self.effective_from))
+        )
+        if overlaps.exists():
+            raise ValidationError("Employee base-location assignments cannot overlap.")
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        CompanyMembership.objects.select_for_update().get(pk=self.employee_id)
+        self.full_clean()
+        super().save(*args, **kwargs)
+        today = timezone.now().astimezone(ZoneInfo(self.employee.company.timezone)).date()
+        if self.effective_from <= today and (
+            self.effective_to is None or self.effective_to >= today
+        ):
+            CompanyMembership.objects.filter(pk=self.employee_id).update(
+                base_location_id=self.base_location_id
+            )
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        CompanyMembership.objects.select_for_update().get(pk=self.employee_id)
+        if self._started(company=self.employee.company):
+            raise ValidationError("Started employee base-location versions cannot be deleted.")
+        return super().delete(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.employee} / {self.base_location}"
+
+
+class ProjectBaseLocationAssignment(EffectiveDatedModel):
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.PROTECT,
+        related_name="base_location_assignments",
+    )
+    base_location = models.ForeignKey(
+        BaseLocation,
+        on_delete=models.PROTECT,
+        related_name="project_assignments",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-effective_from"]
+
+    def clean(self):
+        super().clean()
+        if self.project_id:
+            self._validate_started_version(
+                company=self.project.company,
+                immutable_fields=("project_id", "base_location_id", "effective_from"),
+                label="project base-location",
+            )
+        if self.project_id and self.base_location_id:
+            if self.project.company_id != self.base_location.company_id:
+                raise ValidationError("Project and base location must belong to the same company.")
+        overlaps = (
+            ProjectBaseLocationAssignment.objects.filter(project=self.project)
+            .exclude(pk=self.pk)
+            .filter(effective_from__lte=self.effective_to or date.max)
+            .filter(Q(effective_to__isnull=True) | Q(effective_to__gte=self.effective_from))
+        )
+        if overlaps.exists():
+            raise ValidationError("Project base-location assignments cannot overlap.")
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        Project.objects.select_for_update().get(pk=self.project_id)
+        self.full_clean()
+        super().save(*args, **kwargs)
+        today = timezone.now().astimezone(ZoneInfo(self.project.company.timezone)).date()
+        if self.effective_from <= today and (
+            self.effective_to is None or self.effective_to >= today
+        ):
+            Project.objects.filter(pk=self.project_id).update(
+                base_location_id=self.base_location_id
+            )
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        Project.objects.select_for_update().get(pk=self.project_id)
+        if self._started(company=self.project.company):
+            raise ValidationError("Started project base-location versions cannot be deleted.")
+        return super().delete(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.project} / {self.base_location}"
+
+
 class EmployeeProjectAssignment(EffectiveDatedModel):
     employee = models.ForeignKey(
         CompanyMembership, on_delete=models.PROTECT, related_name="project_assignments"
@@ -155,6 +302,12 @@ class EmployeeProjectAssignment(EffectiveDatedModel):
 
     def clean(self):
         super().clean()
+        if self.employee_id:
+            self._validate_started_version(
+                company=self.employee.company,
+                immutable_fields=("employee_id", "project_id", "effective_from"),
+                label="employee project-assignment",
+            )
         if self.pk and WorkInOfficeRecord.objects.filter(assignment_snapshot__id=self.pk).exists():
             raise ValidationError("Historically used assignments cannot be changed.")
         if (
@@ -177,8 +330,19 @@ class EmployeeProjectAssignment(EffectiveDatedModel):
     def __str__(self):
         return f"{self.employee} / {self.project}"
 
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        CompanyMembership.objects.select_for_update().get(pk=self.employee_id)
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    @transaction.atomic
     def delete(self, *args, **kwargs):
-        if WorkInOfficeRecord.objects.filter(assignment_snapshot__id=self.pk).exists():
+        CompanyMembership.objects.select_for_update().get(pk=self.employee_id)
+        if (
+            self._started(company=self.employee.company)
+            or WorkInOfficeRecord.objects.filter(assignment_snapshot__id=self.pk).exists()
+        ):
             raise ValidationError("Historically used assignments cannot be deleted.")
         return super().delete(*args, **kwargs)
 
@@ -198,6 +362,17 @@ class ProjectStatusRule(EffectiveDatedModel):
 
     def clean(self):
         super().clean()
+        if self.company_id:
+            self._validate_started_version(
+                company=self.company,
+                immutable_fields=(
+                    "company_id",
+                    "assignment_status",
+                    "expected_fraction",
+                    "effective_from",
+                ),
+                label="policy-rule",
+            )
         if (
             self.pk
             and WorkInOfficeRecord.objects.filter(policy_snapshot__rule__id=self.pk).exists()
@@ -219,8 +394,26 @@ class ProjectStatusRule(EffectiveDatedModel):
     def __str__(self):
         return f"{self.company}: {self.assignment_status}"
 
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        Company.objects.select_for_update().get(pk=self.company_id)
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    @transaction.atomic
     def delete(self, *args, **kwargs):
-        if WorkInOfficeRecord.objects.filter(policy_snapshot__rule__id=self.pk).exists():
+        Company.objects.select_for_update().get(pk=self.company_id)
+        live_period_uses_rule = FiscalPeriod.objects.filter(
+            company=self.company,
+            state__in=(FiscalPeriod.State.ACTIVE, FiscalPeriod.State.RECONCILIATION),
+            start_date__lte=self.effective_to or date.max,
+            end_date__gte=self.effective_from,
+        ).exists()
+        if (
+            self._started(company=self.company)
+            or live_period_uses_rule
+            or WorkInOfficeRecord.objects.filter(policy_snapshot__rule__id=self.pk).exists()
+        ):
             raise ValidationError("Historically used policy rules cannot be deleted.")
         return super().delete(*args, **kwargs)
 

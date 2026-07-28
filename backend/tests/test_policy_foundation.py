@@ -1,5 +1,6 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+from importlib import import_module
 
 import pytest
 from django.contrib import admin
@@ -9,15 +10,18 @@ from django.test import RequestFactory
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from apps.accounts.models import Company, CompanyMembership, User
+from apps.accounts.models import Company, CompanyMembership, ManagerAssignment, User
 from apps.audit.models import AuditEvent
 from apps.work_logs.admin import FiscalPeriodAdmin, WorkInOfficeRecordAdmin
+from apps.work_logs.lifecycle import advance_fiscal_period_states
 from apps.work_logs.models import (
     ApprovedLeave,
     BaseLocation,
+    EmployeeBaseLocationAssignment,
     EmployeeProjectAssignment,
     FiscalPeriod,
     Project,
+    ProjectBaseLocationAssignment,
     ProjectStatusRule,
     RemoteWorkException,
     WorkInOfficeRecord,
@@ -51,6 +55,142 @@ def test_fiscal_period_defaults_cutoff_and_rejects_overlap(policy_employee):
     )
     with pytest.raises(ValidationError, match="cannot overlap"):
         overlap.full_clean()
+
+
+def test_fiscal_lifecycle_coordinator_persists_and_audits_due_states(policy_employee):
+    past = FiscalPeriod.objects.create(
+        company=policy_employee.company,
+        name="FY25",
+        start_date=date(2025, 7, 1),
+        end_date=date(2026, 6, 30),
+        state=FiscalPeriod.State.ACTIVE,
+    )
+    current = FiscalPeriod.objects.create(
+        company=policy_employee.company,
+        name="FY26",
+        start_date=date(2026, 7, 1),
+        end_date=date(2027, 6, 30),
+        state=FiscalPeriod.State.UPCOMING,
+    )
+    for status in ProjectStatusRule.AssignmentStatus.values:
+        ProjectStatusRule.objects.create(
+            company=policy_employee.company,
+            assignment_status=status,
+            effective_from=current.start_date,
+            effective_to=current.end_date,
+            expected_fraction=Decimal("0.50"),
+        )
+    at = timezone.make_aware(datetime(2026, 7, 15, 12))
+
+    assert advance_fiscal_period_states(at=at) == 2
+    past.refresh_from_db()
+    current.refresh_from_db()
+    assert past.state == FiscalPeriod.State.RECONCILIATION
+    assert current.state == FiscalPeriod.State.ACTIVE
+    assert (
+        AuditEvent.objects.filter(
+            event_type="work_logs.period_state_advanced",
+            target_type="work_logs.FiscalPeriod",
+        ).count()
+        == 2
+    )
+
+    assert advance_fiscal_period_states(at=at) == 0
+    assert (
+        AuditEvent.objects.filter(
+            event_type="work_logs.period_state_advanced",
+            target_type="work_logs.FiscalPeriod",
+        ).count()
+        == 2
+    )
+
+
+def test_fiscal_lifecycle_rejects_incomplete_policy_coverage(policy_employee):
+    period = FiscalPeriod.objects.create(
+        company=policy_employee.company,
+        name="FY26",
+        start_date=date(2026, 7, 1),
+        end_date=date(2027, 6, 30),
+        state=FiscalPeriod.State.UPCOMING,
+    )
+    ProjectStatusRule.objects.create(
+        company=policy_employee.company,
+        assignment_status=ProjectStatusRule.AssignmentStatus.BENCHED,
+        effective_from=period.start_date,
+        effective_to=period.end_date,
+        expected_fraction=Decimal("0.50"),
+    )
+
+    with pytest.raises(ValidationError, match="policy coverage"):
+        advance_fiscal_period_states(at=timezone.make_aware(datetime(2026, 7, 15, 12)))
+
+    period.refresh_from_db()
+    assert period.state == FiscalPeriod.State.UPCOMING
+
+
+def test_fiscal_lifecycle_revalidates_an_already_active_period(policy_employee):
+    period = FiscalPeriod.objects.create(
+        company=policy_employee.company,
+        name="FY26",
+        start_date=date(2026, 7, 1),
+        end_date=date(2027, 6, 30),
+        state=FiscalPeriod.State.ACTIVE,
+    )
+
+    with pytest.raises(ValidationError, match="policy coverage"):
+        advance_fiscal_period_states(at=timezone.make_aware(datetime(2026, 7, 15, 12)))
+
+    period.refresh_from_db()
+    assert period.state == FiscalPeriod.State.ACTIVE
+
+
+def test_manager_can_be_reassigned_to_same_employee_in_disjoint_periods(policy_employee):
+    manager_user = User.objects.create_user(email="manager@example.com")
+    manager = CompanyMembership.objects.create(
+        user=manager_user,
+        company=policy_employee.company,
+        role=CompanyMembership.Role.MANAGER,
+    )
+    original = ManagerAssignment.objects.create(
+        manager=manager,
+        employee=policy_employee,
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 3, 31),
+    )
+
+    later = ManagerAssignment.objects.create(
+        manager=manager,
+        employee=policy_employee,
+        effective_from=date(2026, 7, 1),
+    )
+
+    assert later.effective_from == date(2026, 7, 1)
+    original.effective_from = date(2026, 2, 1)
+    with pytest.raises(ValidationError, match="assignments are immutable"):
+        original.save()
+    original.refresh_from_db()
+    with pytest.raises(ValidationError, match="cannot be deleted"):
+        original.delete()
+
+
+def test_manager_history_migration_only_rejects_overlapping_active_rows():
+    migration = import_module("apps.accounts.migrations.0009_manager_assignment_history_integrity")
+    rows = [
+        (1, date(2026, 1, 1), date(2026, 3, 31)),
+        (1, date(2026, 7, 1), None),
+        (2, date(2026, 1, 1), None),
+        (2, date(2026, 7, 1), None),
+    ]
+
+    assert migration.ambiguous_employee_ids(rows) == [2]
+
+
+def test_legacy_fiscal_cutoff_migration_preserves_end_of_day():
+    migration = import_module("apps.work_logs.migrations.0004_remediation_foundations")
+
+    normalized = migration.normalize_legacy_cutoff(datetime(2027, 1, 14))
+
+    assert normalized.time() == time.max
 
 
 def test_ratio_ledger_explains_exclusions_and_rounds_once(policy_employee):
@@ -93,6 +233,148 @@ def test_ratio_ledger_explains_exclusions_and_rounds_once(policy_employee):
     assert result["days"][1].reason == "Approved leave"
     assert result["days"][2].reason == "Approved remote-work exception"
     assert result["days"][0].approval_credit == Decimal("1")
+
+
+def test_ratio_ledger_uses_effective_dated_base_locations(policy_employee):
+    day = date(2026, 7, 20)
+    headquarters = BaseLocation.objects.create(
+        company=policy_employee.company, name="Headquarters", code="hq"
+    )
+    remote_hub = BaseLocation.objects.create(
+        company=policy_employee.company, name="Remote hub", code="remote"
+    )
+    policy_employee.base_location = remote_hub
+    policy_employee.save(update_fields=["base_location"])
+    project = Project.objects.create(
+        company=policy_employee.company,
+        name="Core",
+        code="core",
+        base_location=headquarters,
+    )
+    EmployeeBaseLocationAssignment.objects.create(
+        employee=policy_employee,
+        base_location=headquarters,
+        effective_from=date(2026, 1, 1),
+        effective_to=day,
+    )
+    EmployeeBaseLocationAssignment.objects.create(
+        employee=policy_employee,
+        base_location=remote_hub,
+        effective_from=day + timedelta(days=1),
+    )
+    ProjectBaseLocationAssignment.objects.create(
+        project=project,
+        base_location=headquarters,
+        effective_from=date(2026, 1, 1),
+    )
+    EmployeeProjectAssignment.objects.create(
+        employee=policy_employee,
+        project=project,
+        effective_from=date(2026, 1, 1),
+    )
+    ProjectStatusRule.objects.create(
+        company=policy_employee.company,
+        assignment_status=ProjectStatusRule.AssignmentStatus.SAME_BASE,
+        effective_from=date(2026, 1, 1),
+        expected_fraction=Decimal("0.50"),
+    )
+    ProjectStatusRule.objects.create(
+        company=policy_employee.company,
+        assignment_status=ProjectStatusRule.AssignmentStatus.DIFFERENT_BASE,
+        effective_from=date(2026, 1, 1),
+        expected_fraction=Decimal("1.00"),
+    )
+
+    result = ratio_ledger(
+        employee=policy_employee,
+        start_date=day,
+        end_date=day,
+        as_of_date=day,
+    )
+
+    assert result["days"][0].assignment_status == "same_base"
+    assert result["expected_fraction_sum"] == Decimal("0.50")
+
+
+def test_profile_resolves_a_future_location_when_it_becomes_effective(
+    client, monkeypatch, policy_employee
+):
+    today = timezone.localdate()
+    effective_day = today + timedelta(days=30)
+    old_location = BaseLocation.objects.create(
+        company=policy_employee.company, name="Old office", code="old"
+    )
+    new_location = BaseLocation.objects.create(
+        company=policy_employee.company, name="New office", code="new"
+    )
+    policy_employee.base_location = old_location
+    policy_employee.save(update_fields=["base_location"])
+    EmployeeBaseLocationAssignment.objects.create(
+        employee=policy_employee,
+        base_location=new_location,
+        effective_from=effective_day,
+    )
+    monkeypatch.setattr(
+        "apps.work_logs.profile_views.company_today", lambda _company: effective_day
+    )
+    client.force_login(policy_employee.user)
+
+    response = client.get("/api/v1/profile/")
+
+    assert response.status_code == 200
+    assert response.json()["base_location"] == "New office"
+    policy_employee.refresh_from_db()
+    assert policy_employee.base_location == old_location
+
+    at = timezone.make_aware(datetime.combine(effective_day, time(12)))
+    assert advance_fiscal_period_states(at=at) == 0
+    policy_employee.refresh_from_db()
+    assert policy_employee.base_location == new_location
+
+
+def test_started_location_history_is_append_only(policy_employee):
+    original = BaseLocation.objects.create(
+        company=policy_employee.company, name="Original", code="original"
+    )
+    replacement = BaseLocation.objects.create(
+        company=policy_employee.company, name="Replacement", code="replacement"
+    )
+    version = EmployeeBaseLocationAssignment.objects.create(
+        employee=policy_employee,
+        base_location=original,
+        effective_from=timezone.localdate() - timedelta(days=1),
+        effective_to=timezone.localdate() + timedelta(days=7),
+    )
+    policy_employee.refresh_from_db()
+    assert policy_employee.base_location == original
+
+    version.base_location = replacement
+    with pytest.raises(ValidationError, match="versions are immutable"):
+        version.save()
+    version.refresh_from_db()
+    with pytest.raises(ValidationError, match="cannot be deleted"):
+        version.delete()
+
+
+def test_active_period_future_policy_coverage_cannot_be_deleted(policy_employee):
+    today = timezone.localdate()
+    period = FiscalPeriod.objects.create(
+        company=policy_employee.company,
+        name="Current",
+        start_date=today,
+        end_date=today + timedelta(days=30),
+        state=FiscalPeriod.State.ACTIVE,
+    )
+    rule = ProjectStatusRule.objects.create(
+        company=policy_employee.company,
+        assignment_status=ProjectStatusRule.AssignmentStatus.BENCHED,
+        effective_from=today + timedelta(days=1),
+        effective_to=period.end_date,
+        expected_fraction=Decimal("0.50"),
+    )
+
+    with pytest.raises(ValidationError, match="cannot be deleted"):
+        rule.delete()
 
 
 def test_zero_expected_days_returns_na_and_combines_exclusion_reasons(policy_employee):
@@ -194,6 +476,35 @@ def test_work_log_admin_is_scoped_to_hr_company(policy_employee):
         request,
         FiscalPeriod(company=Company.objects.create(name="Other", slug="other")),
     )
+
+
+def test_policy_admin_delete_is_audited(policy_employee):
+    hr = User.objects.create_user(email="delete-auditor@example.com", is_staff=True)
+    CompanyMembership.objects.create(
+        user=hr,
+        company=policy_employee.company,
+        role=CompanyMembership.Role.HR_ADMIN,
+    )
+    rule = ProjectStatusRule.objects.create(
+        company=policy_employee.company,
+        assignment_status=ProjectStatusRule.AssignmentStatus.BENCHED,
+        effective_from=timezone.localdate() + timedelta(days=30),
+        expected_fraction=Decimal("0.50"),
+    )
+    request = RequestFactory().post(f"/admin/work_logs/projectstatusrule/{rule.pk}/delete/")
+    request.user = hr
+    site_admin = admin.site._registry[ProjectStatusRule]
+    rule_id = rule.pk
+
+    site_admin.delete_model(request, rule)
+
+    assert not ProjectStatusRule.objects.filter(pk=rule_id).exists()
+    assert AuditEvent.objects.filter(
+        actor=hr,
+        event_type="work_logs.admin_deleted",
+        target_type="work_logs.ProjectStatusRule",
+        target_id=str(rule_id),
+    ).exists()
 
 
 def test_hr_can_extend_rejected_correction_without_passing_fiscal_cutoff(policy_employee):

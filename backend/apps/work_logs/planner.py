@@ -151,18 +151,10 @@ def projection(*, employee):
         employee=employee,
         date__range=(period.start_date, period.end_date),
         excluded_reason="",
-    )
-    firm = set(
-        intentions.filter(location="office", commitment="firm").values_list("date", flat=True)
-    )
-    flexible = (
-        set(
-            intentions.filter(location="office", commitment="flexible").values_list(
-                "date", flat=True
-            )
-        )
-        - firm
-    )
+        location="office",
+    ).values_list("date", "commitment")
+    firm = {date for date, commitment in intentions if commitment == "firm"}
+    flexible = {date for date, commitment in intentions if commitment == "flexible"} - firm
     eligible = {day for day, fraction in expected_by_date.items() if fraction > 0}
     expected_total = sum(expected_by_date.values(), start=Decimal("0"))
     minimum = sum((expected_by_date[day] for day in firm & eligible), start=Decimal("0"))

@@ -5,14 +5,21 @@ import django.db.models.deletion
 from django.utils import timezone
 
 
+def normalize_legacy_cutoff(value):
+    if isinstance(value, datetime):
+        if value.time() == time.min:
+            value = datetime.combine(value.date(), time.max)
+    else:
+        value = datetime.combine(value, time.max)
+    if timezone.is_naive(value):
+        value = timezone.make_aware(value)
+    return value
+
+
 def migrate_cutoffs(apps, schema_editor):
     FiscalPeriod = apps.get_model("work_logs", "FiscalPeriod")
     for period in FiscalPeriod.objects.exclude(reconciliation_cutoff__isnull=True):
-        value = period.reconciliation_cutoff
-        if not isinstance(value, datetime):
-            value = datetime.combine(value, time.max)
-        if timezone.is_naive(value):
-            value = timezone.make_aware(value)
+        value = normalize_legacy_cutoff(period.reconciliation_cutoff)
         FiscalPeriod.objects.filter(pk=period.pk).update(reconciliation_cutoff=value)
 
 

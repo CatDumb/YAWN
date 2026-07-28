@@ -5,11 +5,14 @@ from datetime import date, timedelta
 from decimal import ROUND_CEILING, Decimal
 
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 
 from apps.work_logs.models import (
     ApprovedLeave,
     CompanyHoliday,
+    EmployeeBaseLocationAssignment,
     EmployeeProjectAssignment,
+    ProjectBaseLocationAssignment,
     ProjectStatusRule,
     RemoteWorkException,
     WioTransitionBaseline,
@@ -78,6 +81,11 @@ def _covers(item, on_date):
     )
 
 
+def _effective_location_id(history, on_date, fallback_id):
+    assignment = next((item for item in history if _covers(item, on_date)), None)
+    return assignment.base_location_id if assignment else fallback_id
+
+
 def ratio_ledger(*, employee, start_date, end_date, as_of_date):
     """Prepare a bounded number of queries, then delegate all math to ``calculate_ratio``."""
     legacy_rows = []
@@ -129,16 +137,28 @@ def ratio_ledger(*, employee, start_date, end_date, as_of_date):
     )
     assignments = list(
         EmployeeProjectAssignment.objects.filter(
-            employee=employee, effective_from__lte=end_date
-        ).filter(effective_to__isnull=True)
-        | EmployeeProjectAssignment.objects.filter(
-            employee=employee, effective_from__lte=end_date, effective_to__gte=calculation_start
+            employee=employee,
+            effective_from__lte=end_date,
         )
+        .select_related("project__base_location", "employee__base_location")
+        .filter(Q(effective_to__isnull=True) | Q(effective_to__gte=calculation_start))
     )
-    assignments = list(
-        EmployeeProjectAssignment.objects.filter(
-            pk__in=[item.pk for item in assignments]
-        ).select_related("project__base_location", "employee__base_location")
+    employee_locations = list(
+        EmployeeBaseLocationAssignment.objects.filter(
+            employee=employee,
+            effective_from__lte=end_date,
+        )
+        .filter(Q(effective_to__isnull=True) | Q(effective_to__gte=calculation_start))
+        .select_related("base_location")
+    )
+    project_ids = {assignment.project_id for assignment in assignments}
+    project_locations = list(
+        ProjectBaseLocationAssignment.objects.filter(
+            project_id__in=project_ids,
+            effective_from__lte=end_date,
+        )
+        .filter(Q(effective_to__isnull=True) | Q(effective_to__gte=calculation_start))
+        .select_related("base_location")
     )
     rules = list(
         ProjectStatusRule.objects.filter(company=company, effective_from__lte=end_date).filter(
@@ -169,10 +189,21 @@ def ratio_ledger(*, employee, start_date, end_date, as_of_date):
         assignment = next((item for item in assignments if _covers(item, current)), None)
         status = "benched"
         if assignment:
+            employee_location_id = _effective_location_id(
+                employee_locations,
+                current,
+                employee.base_location_id,
+            )
+            assignment_project_locations = [
+                item for item in project_locations if item.project_id == assignment.project_id
+            ]
+            project_location_id = _effective_location_id(
+                assignment_project_locations,
+                current,
+                assignment.project.base_location_id,
+            )
             status = (
-                "same_base"
-                if assignment.project.base_location_id == employee.base_location_id
-                else "different_base"
+                "same_base" if project_location_id == employee_location_id else "different_base"
             )
         rule = next(
             (item for item in rules if item.assignment_status == status and _covers(item, current)),

@@ -13,9 +13,11 @@ from apps.audit.models import AuditEvent
 from apps.work_logs.models import (
     ApprovedLeave,
     CompanyHoliday,
+    EmployeeBaseLocationAssignment,
     EmployeeProjectAssignment,
     FinalizedLedgerRevision,
     FiscalPeriod,
+    ProjectBaseLocationAssignment,
     ProjectStatusRule,
     RemoteWorkException,
     WioTransitionBaseline,
@@ -23,8 +25,9 @@ from apps.work_logs.models import (
 )
 
 
-def company_today():
-    return timezone.now().astimezone(ZoneInfo(settings.TIME_ZONE)).date()
+def company_today(company=None):
+    timezone_name = company.timezone if company else settings.TIME_ZONE
+    return timezone.now().astimezone(ZoneInfo(timezone_name)).date()
 
 
 def _assignment_status(employee, on_date):
@@ -36,11 +39,31 @@ def _assignment_status(employee, on_date):
     ).first()
     if not assignment:
         return "benched", None
-    status = (
-        "same_base"
-        if assignment.project.base_location_id == employee.base_location_id
-        else "different_base"
+    employee_location = (
+        EmployeeBaseLocationAssignment.objects.filter(
+            employee=employee,
+            effective_from__lte=on_date,
+        )
+        .filter(Q(effective_to__isnull=True) | Q(effective_to__gte=on_date))
+        .first()
     )
+    project_location = (
+        ProjectBaseLocationAssignment.objects.filter(
+            project=assignment.project,
+            effective_from__lte=on_date,
+        )
+        .filter(Q(effective_to__isnull=True) | Q(effective_to__gte=on_date))
+        .first()
+    )
+    employee_location_id = (
+        employee_location.base_location_id if employee_location else employee.base_location_id
+    )
+    project_location_id = (
+        project_location.base_location_id
+        if project_location
+        else assignment.project.base_location_id
+    )
+    status = "same_base" if project_location_id == employee_location_id else "different_base"
     return status, assignment
 
 

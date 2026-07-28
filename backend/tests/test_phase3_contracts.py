@@ -1943,7 +1943,8 @@ def test_report_dashboard_csv_and_frozen_revision_share_raw_denominator_fixture(
     period.state = FiscalPeriod.State.FINAL
     period.save(update_fields=["state"])
     rule.expected_fraction = Decimal("0.10")
-    rule.save(update_fields=["expected_fraction"])
+    with pytest.raises(ValidationError, match="versions are immutable"):
+        rule.save(update_fields=["expected_fraction"])
 
     frozen_report = client.get(
         f"/api/v1/reports/?start_date={start.isoformat()}&end_date={today.isoformat()}"

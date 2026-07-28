@@ -3,6 +3,7 @@ from datetime import timedelta
 from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils import timezone
@@ -13,9 +14,11 @@ from apps.work_logs.models import (
     ApprovedLeave,
     BaseLocation,
     CompanyHoliday,
+    EmployeeBaseLocationAssignment,
     EmployeeProjectAssignment,
     FiscalPeriod,
     Project,
+    ProjectBaseLocationAssignment,
     ProjectStatusRule,
     RemoteWorkException,
     WioTransitionBaseline,
@@ -74,6 +77,7 @@ class AuditedAdmin(admin.ModelAdmin):
             return queryset
         return queryset.filter(**{f"{self.company_lookup}__in": company_ids})
 
+    @transaction.atomic
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
         metadata = {}
@@ -87,9 +91,22 @@ class AuditedAdmin(admin.ModelAdmin):
             metadata=metadata,
         )
 
+    @transaction.atomic
     def delete_queryset(self, request, queryset):
         for obj in queryset:
             self.delete_model(request, obj)
+
+    @transaction.atomic
+    def delete_model(self, request, obj):
+        target_type = obj._meta.label
+        target_id = str(obj.pk)
+        super().delete_model(request, obj)
+        AuditEvent.objects.create(
+            actor=request.user,
+            event_type="work_logs.admin_deleted",
+            target_type=target_type,
+            target_id=target_id,
+        )
 
 
 @admin.register(FiscalPeriod)
@@ -156,6 +173,16 @@ class EffectiveDatedAdmin(AuditedAdmin):
 @admin.register(EmployeeProjectAssignment)
 class AssignmentAdmin(EffectiveDatedAdmin):
     company_lookup = "employee__company"
+
+
+@admin.register(EmployeeBaseLocationAssignment)
+class EmployeeBaseLocationAssignmentAdmin(EffectiveDatedAdmin):
+    company_lookup = "employee__company"
+
+
+@admin.register(ProjectBaseLocationAssignment)
+class ProjectBaseLocationAssignmentAdmin(EffectiveDatedAdmin):
+    company_lookup = "project__company"
 
 
 class EmployeeScopedAdmin(AuditedAdmin):
