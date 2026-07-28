@@ -223,7 +223,8 @@ function responseFor(url: string) {
         expected_fraction: "1.00",
         approval_credit: "1.00",
         self_submitted_credit: "1.00",
-        approval_method: review_state === "approved" ? "manager_approved" : null,
+        approval_method:
+          review_state === "approved" ? "manager_approved" : null,
         review_state,
         location_choice: "in_office",
       })),

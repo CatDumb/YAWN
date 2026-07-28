@@ -39,7 +39,10 @@ export function AuditStreamComparison({
     <div className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2">
         {streams.map(([label, stream]) => (
-          <div className="stats stats-vertical bg-base-100 w-full shadow-sm" key={label}>
+          <div
+            className="stats stats-vertical bg-base-100 w-full shadow-sm"
+            key={label}
+          >
             <div className="stat gap-1 px-4 py-3">
               <div className="stat-title">{label}</div>
               <div className="stat-value text-2xl">{stream.ratio}</div>

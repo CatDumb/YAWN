@@ -9,16 +9,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../../lib/errors";
 
-const { getWorkInOfficeMetadata, replace, saveWorkInOffice, undoSelfApproval } = vi.hoisted(
-  () => ({
+const { getWorkInOfficeMetadata, replace, saveWorkInOffice, undoSelfApproval } =
+  vi.hoisted(() => ({
     getWorkInOfficeMetadata: vi.fn(),
     replace: vi.fn(),
     saveWorkInOffice: vi.fn(),
     undoSelfApproval: vi.fn(),
-  }),
-);
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace, refresh: vi.fn() }) }));
-vi.mock("./api", () => ({ getWorkInOfficeMetadata, saveWorkInOffice, undoSelfApproval }));
+  }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace, refresh: vi.fn() }),
+}));
+vi.mock("./api", () => ({
+  getWorkInOfficeMetadata,
+  saveWorkInOffice,
+  undoSelfApproval,
+}));
 
 import { RecordForm } from "./record-form";
 

@@ -152,8 +152,7 @@ def undo_approval(*, manager, record_id, version):
         or record.employee.company_id != manager.company_id
         or record.approved_by_snapshot.get("membership_id") != manager.pk
         or record.review_state != WorkInOfficeRecord.ReviewState.APPROVED
-        or record.approval_method
-        != WorkInOfficeRecord.ApprovalMethod.MANAGER_APPROVED
+        or record.approval_method != WorkInOfficeRecord.ApprovalMethod.MANAGER_APPROVED
     ):
         raise ValidationError("Approval is unavailable for undo.")
     if version is None or record.version != version:
