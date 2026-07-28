@@ -3,16 +3,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AppPage } from "@/features/app-shell/app-page";
+import { AuditStreamComparison } from "@/features/work-in-office/audit-stream-comparison";
 import { apiFetch } from "@/lib/api";
 import { responseDetail, userFacingError } from "@/lib/errors";
 import { formatMessage, languageFromDocument, messagesFor } from "@/lib/i18n";
 
 type Report = {
   approved_days: string;
+  self_submitted_days: string;
   expected_fraction_sum: string;
   expected_display: string;
   ratio_display: string;
   balance: string;
+  self_submitted_ratio_display: string;
+  self_submitted_balance: string;
+  self_approval_applies: boolean;
   percentage: string | null;
   pending_count: number;
   pending_assignment_count: number;
@@ -28,7 +33,9 @@ type Report = {
     rule_version: number | null;
     expected_fraction: string;
     approval_credit: string;
+    self_submitted_credit: string;
     review_state: string | null;
+    approval_method: string | null;
     location_choice: string | null;
   }>;
 };
@@ -196,20 +203,24 @@ export default function ReportsPage() {
           <>
             <section className="card bg-base-200 shadow-sm">
               <div className="card-body">
-                <h2 className="card-title">{report.ratio_display}</h2>
-                <p>
-                  {formatMessage(copy.summaryLine, {
-                    approved: report.approved_days,
-                    expected: report.expected_display,
-                    pending: report.pending_count,
-                    pendingAssignment: report.pending_assignment_count,
-                  })}
-                </p>
-                <p className="text-base-content/70 text-sm">
-                  {formatMessage(copy.detailsLine, {
+                <AuditStreamComparison
+                  approved={{
+                    days: report.approved_days,
+                    ratio: report.ratio_display,
                     balance: report.balance,
-                  })}
-                </p>
+                  }}
+                  approvedLabel={copy.approvedStream}
+                  balanceLabel={copy.balanceLabel}
+                  expectedLabel={report.expected_display}
+                  explanation={copy.selfApprovalExplanation}
+                  selfApprovalApplies={report.self_approval_applies}
+                  selfSubmitted={{
+                    days: report.self_submitted_days,
+                    ratio: report.self_submitted_ratio_display,
+                    balance: report.self_submitted_balance,
+                  }}
+                  selfSubmittedLabel={copy.selfSubmittedStream}
+                />
                 <progress
                   aria-label={formatMessage(copy.visualProgressLabel, {
                     ratio: report.ratio_display,
@@ -239,6 +250,7 @@ export default function ReportsPage() {
                     <th>{copy.expected}</th>
                     <th>{copy.wioReview}</th>
                     <th>{copy.approved}</th>
+                    <th>{copy.selfSubmitted}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -251,6 +263,7 @@ export default function ReportsPage() {
                       <td>{row.expected_fraction}</td>
                       <td>{reviewLabel(row.review_state, copy)}</td>
                       <td>{row.approval_credit}</td>
+                      <td>{row.self_submitted_credit}</td>
                     </tr>
                   ))}
                 </tbody>

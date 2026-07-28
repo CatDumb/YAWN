@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { AppPage } from "@/features/app-shell/app-page";
 import { TransitionBaselineCard } from "@/features/work-in-office/transition-baseline-card";
+import { AuditStreamComparison } from "@/features/work-in-office/audit-stream-comparison";
 import { apiFetch } from "@/lib/api";
 import { apiErrorFromResponse, userFacingError } from "@/lib/errors";
 import { formatMessage, languageFromDocument, messagesFor } from "@/lib/i18n";
@@ -22,9 +23,13 @@ type Ratio = {
   available: boolean;
   message?: string;
   approved_days: string;
+  self_submitted_days: string;
   expected_display: string;
   ratio_display: string;
   balance: string;
+  self_submitted_ratio_display: string;
+  self_submitted_balance: string;
+  self_approval_applies: boolean;
   remaining_eligible_days: number | null;
   pending_count: number;
   pending_assignment_count: number;
@@ -541,13 +546,24 @@ export default function DashboardPage() {
                 <h2 className="card-title">{copy.ratioTitle}</h2>
                 {ratio?.available ? (
                   <>
-                    <p className="text-2xl font-bold">{ratio.ratio_display}</p>
-                    <p>
-                      {formatMessage(copy.ratioSummary, {
-                        approved: ratio.approved_days,
-                        expected: ratio.expected_display,
-                      })}
-                    </p>
+                    <AuditStreamComparison
+                      approved={{
+                        days: ratio.approved_days,
+                        ratio: ratio.ratio_display,
+                        balance: ratio.balance,
+                      }}
+                      approvedLabel={copy.approvedStream}
+                      balanceLabel={copy.deficitOrExcess}
+                      expectedLabel={ratio.expected_display}
+                      explanation={copy.selfApprovalExplanation}
+                      selfApprovalApplies={ratio.self_approval_applies}
+                      selfSubmitted={{
+                        days: ratio.self_submitted_days,
+                        ratio: ratio.self_submitted_ratio_display,
+                        balance: ratio.self_submitted_balance,
+                      }}
+                      selfSubmittedLabel={copy.selfSubmittedStream}
+                    />
                     <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                       <div>
                         <dt className="text-base-content/70">

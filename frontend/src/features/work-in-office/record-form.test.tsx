@@ -9,15 +9,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../../lib/errors";
 
-const { getWorkInOfficeMetadata, replace, saveWorkInOffice } = vi.hoisted(
+const { getWorkInOfficeMetadata, replace, saveWorkInOffice, undoSelfApproval } = vi.hoisted(
   () => ({
     getWorkInOfficeMetadata: vi.fn(),
     replace: vi.fn(),
     saveWorkInOffice: vi.fn(),
+    undoSelfApproval: vi.fn(),
   }),
 );
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }) }));
-vi.mock("./api", () => ({ getWorkInOfficeMetadata, saveWorkInOffice }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace, refresh: vi.fn() }) }));
+vi.mock("./api", () => ({ getWorkInOfficeMetadata, saveWorkInOffice, undoSelfApproval }));
 
 import { RecordForm } from "./record-form";
 
@@ -25,6 +26,7 @@ describe("RecordForm", () => {
   beforeEach(() => {
     replace.mockReset();
     saveWorkInOffice.mockReset();
+    undoSelfApproval.mockReset();
     getWorkInOfficeMetadata.mockResolvedValue({
       company_date: "2026-07-23",
       timezone: "Asia/Ho_Chi_Minh",
@@ -73,5 +75,33 @@ describe("RecordForm", () => {
       screen.getByRole("button", { name: "Reload latest state" }),
     ).toBeVisible();
     expect(screen.getByLabelText("Work location")).toHaveValue("not_in_office");
+  });
+
+  it("offers self-approval undo only for self-approved records", async () => {
+    undoSelfApproval.mockResolvedValueOnce({ id: 8 });
+    render(
+      <RecordForm
+        record={{
+          id: 8,
+          work_date: "2026-07-23",
+          location_choice: "in_office",
+          review_state: "approved",
+          approval_method: "self_approved",
+          note: "Visit",
+          approver_note: "",
+          version: 3,
+          created_at: "",
+          updated_at: "",
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Undo self-approval" }));
+    await waitFor(() =>
+      expect(undoSelfApproval).toHaveBeenCalledWith(
+        8,
+        3,
+        "Unable to undo self-approval.",
+      ),
+    );
   });
 });

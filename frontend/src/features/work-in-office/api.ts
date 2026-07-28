@@ -20,6 +20,8 @@ export type WorkInOfficeRecord = {
   updated_at: string;
   rejected_at?: string | null;
   correction_deadline?: string | null;
+  approved_at?: string | null;
+  approval_method?: "manager_approved" | "self_approved" | null;
 };
 
 export type WorkInOfficeAuditEvent = {
@@ -97,4 +99,18 @@ export async function deleteWorkInOffice(
     },
   );
   if (!response.ok) return read<never>(response, fallbackDetail);
+}
+
+export async function undoSelfApproval(
+  id: number,
+  version: number,
+  fallbackDetail: string,
+) {
+  return read<WorkInOfficeRecord>(
+    await apiFetch(`/api/v1/work-in-office/${id}/undo-self-approval/`, {
+      method: "POST",
+      body: JSON.stringify({ version }),
+    }),
+    fallbackDetail,
+  );
 }

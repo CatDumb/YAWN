@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   getWorkInOfficeMetadata,
   saveWorkInOffice,
+  undoSelfApproval,
   type WorkInOfficeRecord,
 } from "./api";
 import {
@@ -32,6 +33,7 @@ export function RecordForm({ record, initialDate }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [isConflict, setIsConflict] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUndoing, setIsUndoing] = useState(false);
 
   useEffect(() => {
     if (record) return;
@@ -61,12 +63,37 @@ export function RecordForm({ record, initialDate }: Props) {
         record ? String(record.id) : undefined,
         copy.saveRecordFailed,
       );
-      router.replace(`/work-in-office?saved=${saved.id}`);
+      router.replace(
+        saved.approval_method === "self_approved"
+          ? `/work-in-office/${saved.id}`
+          : `/work-in-office?saved=${saved.id}`,
+      );
     } catch (reason) {
       setIsConflict(reason instanceof ApiError && reason.status === 409);
       setError(userFacingError(reason, copy.saveRecordFailed));
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function undoApproval() {
+    if (!record) return;
+    setError(null);
+    setIsConflict(false);
+    setIsUndoing(true);
+    try {
+      const saved = await undoSelfApproval(
+        record.id,
+        record.version,
+        copy.undoSelfApprovalFailed,
+      );
+      router.replace(`/work-in-office/${saved.id}`);
+      router.refresh();
+    } catch (reason) {
+      setIsConflict(reason instanceof ApiError && reason.status === 409);
+      setError(userFacingError(reason, copy.undoSelfApprovalFailed));
+    } finally {
+      setIsUndoing(false);
     }
   }
 
@@ -108,7 +135,22 @@ export function RecordForm({ record, initialDate }: Props) {
         ) : null}
         {locked ? (
           <div className="alert alert-warning" role="status">
-            <span>{copy.lockedReview}</span>
+            <div className="flex w-full flex-wrap items-center justify-between gap-3">
+              <span>{copy.lockedReview}</span>
+              {record?.approval_method === "self_approved" ? (
+                <button
+                  className="btn btn-sm btn-ghost"
+                  disabled={isUndoing}
+                  onClick={() => void undoApproval()}
+                  type="button"
+                >
+                  {isUndoing ? (
+                    <span className="loading loading-spinner loading-xs" />
+                  ) : null}
+                  {copy.undoSelfApproval}
+                </button>
+              ) : null}
+            </div>
           </div>
         ) : null}
         {record?.review_state === "rejected" ? (
