@@ -4,7 +4,6 @@ from calendar import monthrange
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import Q
@@ -91,11 +90,12 @@ class FiscalPeriod(models.Model):  # noqa: DJ012
         if not self.reconciliation_cutoff and self.end_date:
             cutoff_day = self.end_date + timedelta(days=14)
             self.reconciliation_cutoff = timezone.make_aware(
-                datetime.combine(cutoff_day, time.max), ZoneInfo(settings.TIME_ZONE)
+                datetime.combine(cutoff_day, time.max), ZoneInfo(self.company.timezone)
             )
         if self.end_date < self.start_date:
             raise ValidationError("Period end date cannot be before start date.")
-        if self.reconciliation_cutoff.date() < self.end_date:
+        cutoff_date = self.reconciliation_cutoff.astimezone(ZoneInfo(self.company.timezone)).date()
+        if cutoff_date < self.end_date:
             raise ValidationError("Reconciliation cutoff cannot precede period end date.")
         overlaps = (
             FiscalPeriod.objects.filter(company=self.company)
@@ -106,20 +106,39 @@ class FiscalPeriod(models.Model):  # noqa: DJ012
             raise ValidationError("Fiscal periods cannot overlap.")
 
     def save(self, *args, **kwargs):
-        if not self.reconciliation_cutoff and self.end_date:
-            cutoff_day = self.end_date + timedelta(days=14)
-            self.reconciliation_cutoff = timezone.make_aware(
-                datetime.combine(cutoff_day, time.max), ZoneInfo(settings.TIME_ZONE)
+        with transaction.atomic():
+            original_company_id = (
+                FiscalPeriod.objects.filter(pk=self.pk).values_list("company_id", flat=True).first()
+                if self.pk
+                else None
             )
-        self.full_clean()
-        super().save(*args, **kwargs)
+            company_ids = {self.company_id}
+            if original_company_id is not None:
+                company_ids.add(original_company_id)
+            list(Company.objects.select_for_update().filter(pk__in=company_ids).order_by("pk"))
+            if self.pk:
+                locked_company_id = (
+                    FiscalPeriod.objects.select_for_update()
+                    .filter(pk=self.pk)
+                    .values_list("company_id", flat=True)
+                    .first()
+                )
+                if locked_company_id != original_company_id:
+                    raise RuntimeError("Fiscal period changed while acquiring its company lock.")
+            if not self.reconciliation_cutoff and self.end_date:
+                cutoff_day = self.end_date + timedelta(days=14)
+                self.reconciliation_cutoff = timezone.make_aware(
+                    datetime.combine(cutoff_day, time.max), ZoneInfo(self.company.timezone)
+                )
+            self.full_clean()
+            super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.company}: {self.name}"
 
     @property
     def derived_state(self):
-        today = timezone.localdate()
+        today = timezone.now().astimezone(ZoneInfo(self.company.timezone)).date()
         if self.state == self.State.FINAL:
             return self.State.FINAL
         if today < self.start_date:
@@ -516,9 +535,30 @@ class WorkInOfficeRecord(models.Model):
     def clean(self):
         if self.note and self.location_choice != self.LocationChoice.IN_OFFICE:
             raise ValidationError("A note is only available for In office records.")
-        if self.review_state == self.ReviewState.APPROVED and self.pk:
+        if self.pk:
             old = WorkInOfficeRecord.objects.get(pk=self.pk)
-            if old.location_choice != self.location_choice or old.note != self.note:
+            protected_fields = (
+                "employee_id",
+                "work_date",
+                "location_choice",
+                "review_state",
+                "note",
+                "approver_note",
+                "rejected_at",
+                "correction_deadline",
+                "version",
+                "assignment_snapshot",
+                "policy_snapshot",
+                "approval_owner_snapshot",
+                "created_at",
+                "submitted_at",
+                "approved_at",
+                "approved_by_snapshot",
+                "approval_method",
+            )
+            if old.review_state == self.ReviewState.APPROVED and any(
+                getattr(old, field) != getattr(self, field) for field in protected_fields
+            ):
                 raise ValidationError("Approved records are immutable.")
 
     def __str__(self):

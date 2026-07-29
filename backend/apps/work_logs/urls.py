@@ -19,12 +19,15 @@ from apps.work_logs.views import (
     ApprovalAssigneeView,
     ApprovalCountView,
     ApprovalDecisionView,
+    ApprovalOwnershipQueueView,
     ApprovalQueueView,
+    ApprovalTimelineView,
     PendingAssignmentQueueView,
     SelfApprovalUndoView,
     WorkInOfficeDetailView,
     WorkInOfficeListCreateView,
     WorkInOfficeMetadataView,
+    WorkInOfficeTimelineView,
 )
 
 urlpatterns = [
@@ -38,6 +41,11 @@ urlpatterns = [
         SelfApprovalUndoView.as_view(),
         name="work-in-office-undo-self-approval",
     ),
+    path(
+        "work-in-office/<int:pk>/timeline/",
+        WorkInOfficeTimelineView.as_view(),
+        name="work-in-office-timeline",
+    ),
     path("approvals/", ApprovalQueueView.as_view(), name="approval-queue"),
     path(
         "approvals/pending-assignment/",
@@ -46,6 +54,16 @@ urlpatterns = [
     ),
     path("approvals/assignees/", ApprovalAssigneeView.as_view(), name="approval-assignees"),
     path("approvals/count/", ApprovalCountView.as_view(), name="approval-count"),
+    path(
+        "approvals/ownership/",
+        ApprovalOwnershipQueueView.as_view(),
+        name="approval-ownership-queue",
+    ),
+    path(
+        "approvals/<int:pk>/timeline/",
+        ApprovalTimelineView.as_view(),
+        name="approval-timeline",
+    ),
     path(
         "approvals/<int:pk>/<str:action>/", ApprovalDecisionView.as_view(), name="approval-decision"
     ),

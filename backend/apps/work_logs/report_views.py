@@ -82,7 +82,7 @@ class ReportView(APIView):
                         Decimal("0.01")
                     )
                 ),
-                "self_approval_applies": membership.role in {"manager", "hr_admin"},
+                "self_approval_applies": False,
                 "ratio_display": report["ratio_display"],
                 "pending_count": report["pending_count"],
                 "pending_assignment_count": report["pending_assignment_count"],

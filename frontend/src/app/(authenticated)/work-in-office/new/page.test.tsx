@@ -21,7 +21,7 @@ describe("NewWorkInOfficePage", () => {
   it("renders a new record form without saving a record", async () => {
     render(<NewWorkInOfficePage />);
     await waitFor(() =>
-      expect(screen.getByText("Log work location")).toBeInTheDocument(),
+      expect(screen.getByText("Record WIO")).toBeInTheDocument(),
     );
     expect(
       screen.getByRole("button", { name: "Save draft" }),

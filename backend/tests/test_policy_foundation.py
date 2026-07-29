@@ -1,17 +1,20 @@
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from importlib import import_module
+from zoneinfo import ZoneInfo
 
 import pytest
+from django.apps import apps as django_apps
 from django.contrib import admin
 from django.core.exceptions import ValidationError
 from django.db import connection
-from django.test import RequestFactory
+from django.test import RequestFactory, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from apps.accounts.models import Company, CompanyMembership, ManagerAssignment, User
 from apps.audit.models import AuditEvent
+from apps.work_logs import admin as work_logs_admin
 from apps.work_logs.admin import FiscalPeriodAdmin, WorkInOfficeRecordAdmin
 from apps.work_logs.lifecycle import advance_fiscal_period_states
 from apps.work_logs.models import (
@@ -55,6 +58,59 @@ def test_fiscal_period_defaults_cutoff_and_rejects_overlap(policy_employee):
     )
     with pytest.raises(ValidationError, match="cannot overlap"):
         overlap.full_clean()
+
+
+@override_settings(TIME_ZONE="UTC")
+def test_company_local_cutoff_migration_repairs_only_legacy_defaults(db):
+    migration = import_module("apps.work_logs.migrations.0010_repair_company_local_cutoffs")
+    company = Company.objects.create(
+        name="Timezone Repair Co",
+        slug="timezone-repair-co",
+        timezone="America/Los_Angeles",
+    )
+    end_date = date(2026, 6, 30)
+    legacy_cutoff = migration.default_cutoff(end_date, "Asia/Ho_Chi_Minh")
+    expected_cutoff = migration.default_cutoff(end_date, company.timezone)
+    repaired = FiscalPeriod.objects.create(
+        company=company,
+        name="Legacy default",
+        start_date=date(2025, 7, 1),
+        end_date=end_date,
+        reconciliation_cutoff=legacy_cutoff,
+    )
+    explicit_end_date = date(2027, 6, 30)
+    explicit_cutoff = migration.default_cutoff(explicit_end_date, "Asia/Ho_Chi_Minh") + timedelta(
+        hours=1
+    )
+    explicit = FiscalPeriod.objects.create(
+        company=company,
+        name="Explicit cutoff",
+        start_date=date(2026, 7, 1),
+        end_date=explicit_end_date,
+        reconciliation_cutoff=explicit_cutoff,
+    )
+
+    migration.repair_company_local_cutoffs(django_apps, None)
+
+    repaired.refresh_from_db()
+    explicit.refresh_from_db()
+    assert repaired.reconciliation_cutoff == expected_cutoff
+    assert explicit.reconciliation_cutoff == explicit_cutoff
+    event = AuditEvent.objects.get(
+        event_type=migration.EVENT_TYPE,
+        target_id=str(repaired.pk),
+    )
+    assert event.metadata["actor_company_id"] == company.pk
+    assert datetime.fromisoformat(event.metadata["previous_cutoff"]) == legacy_cutoff
+    assert datetime.fromisoformat(event.metadata["new_cutoff"]) == expected_cutoff
+
+    migration.reverse_company_local_cutoffs(django_apps, None)
+
+    repaired.refresh_from_db()
+    explicit.refresh_from_db()
+    assert repaired.reconciliation_cutoff == legacy_cutoff
+    assert explicit.reconciliation_cutoff == explicit_cutoff
+    assert not AuditEvent.objects.filter(event_type=migration.EVENT_TYPE).exists()
 
 
 def test_fiscal_lifecycle_coordinator_persists_and_audits_due_states(policy_employee):
@@ -530,7 +586,13 @@ def test_hr_can_extend_rejected_correction_without_passing_fiscal_cutoff(policy_
         correction_deadline=timezone.make_aware(datetime(2027, 1, 13, 23, 59)),
     )
     request = RequestFactory().post(
-        "/admin/work_logs/workinofficerecord/", {"audit_reason": "Employee needs more time"}
+        "/admin/work_logs/workinofficerecord/",
+        {
+            "action": "extend_rejected_correction",
+            "apply": "1",
+            "_selected_action": str(record.pk),
+            "audit_reason": "Employee needs more time",
+        },
     )
     request.user = hr
     site_admin = WorkInOfficeRecordAdmin(WorkInOfficeRecord, admin.site)
@@ -538,6 +600,264 @@ def test_hr_can_extend_rejected_correction_without_passing_fiscal_cutoff(policy_
     record.refresh_from_db()
     assert record.correction_deadline.date() == period.reconciliation_cutoff.date()
     assert record.correction_deadline <= period.reconciliation_cutoff
-    assert AuditEvent.objects.filter(
+    event = AuditEvent.objects.get(
         event_type="work_logs.rejection_correction_extended", target_id=str(record.pk)
+    )
+    assert event.metadata["actor_role"] == CompanyMembership.Role.HR_ADMIN
+    assert event.metadata["actor_company_id"] == policy_employee.company_id
+    assert event.metadata["reason"] == "Employee needs more time"
+    assert event.metadata["revision"] == record.version
+    assert event.metadata["from_state"] == WorkInOfficeRecord.ReviewState.REJECTED
+    assert event.metadata["to_state"] == WorkInOfficeRecord.ReviewState.REJECTED
+
+
+def test_correction_extension_rejects_hr_revoked_after_fiscal_lock(
+    policy_employee,
+    monkeypatch,
+):
+    hr = User.objects.create_user(email="revoked-extension-hr@example.com", is_staff=True)
+    hr_membership = CompanyMembership.objects.create(
+        user=hr,
+        company=policy_employee.company,
+        role=CompanyMembership.Role.HR_ADMIN,
+    )
+    today = timezone.localdate()
+    FiscalPeriod.objects.create(
+        company=policy_employee.company,
+        name="Revocation period",
+        start_date=today - timedelta(days=30),
+        end_date=today,
+        reconciliation_cutoff=timezone.now() + timedelta(days=14),
+        state=FiscalPeriod.State.ACTIVE,
+    )
+    original_deadline = timezone.now() + timedelta(hours=1)
+    record = WorkInOfficeRecord.objects.create(
+        employee=policy_employee,
+        work_date=today,
+        location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
+        review_state=WorkInOfficeRecord.ReviewState.REJECTED,
+        correction_deadline=original_deadline,
+    )
+    request = RequestFactory().post(
+        "/admin/work_logs/workinofficerecord/",
+        {
+            "action": "extend_rejected_correction",
+            "apply": "1",
+            "_selected_action": str(record.pk),
+            "audit_reason": "Employee needs more time",
+        },
+    )
+    request.user = hr
+    original_lock_wio_period = work_logs_admin.lock_wio_period
+
+    def revoke_after_fiscal_lock(*, company_id, work_date):
+        period = original_lock_wio_period(company_id=company_id, work_date=work_date)
+        CompanyMembership.objects.filter(pk=hr_membership.pk).update(
+            role=CompanyMembership.Role.EMPLOYEE
+        )
+        return period
+
+    monkeypatch.setattr(work_logs_admin, "lock_wio_period", revoke_after_fiscal_lock)
+    site_admin = WorkInOfficeRecordAdmin(WorkInOfficeRecord, admin.site)
+    monkeypatch.setattr(site_admin, "message_user", lambda *args, **kwargs: None)
+
+    site_admin.extend_rejected_correction(
+        request,
+        WorkInOfficeRecord.objects.filter(pk=record.pk),
+    )
+
+    record.refresh_from_db()
+    assert record.correction_deadline == original_deadline
+    assert not AuditEvent.objects.filter(
+        event_type="work_logs.rejection_correction_extended",
+        target_id=str(record.pk),
     ).exists()
+
+
+def test_reasoned_reopen_enables_post_cutoff_correction_extension(policy_employee):
+    hr = User.objects.create_user(email="reopen-hr@example.com", is_staff=True)
+    CompanyMembership.objects.create(
+        user=hr,
+        company=policy_employee.company,
+        role=CompanyMembership.Role.HR_ADMIN,
+    )
+    now = timezone.now()
+    end_day = timezone.localdate() - timedelta(days=2)
+    period = FiscalPeriod.objects.create(
+        company=policy_employee.company,
+        name="Closed period",
+        start_date=end_day - timedelta(days=30),
+        end_date=end_day,
+        reconciliation_cutoff=now - timedelta(days=1),
+        state=FiscalPeriod.State.FINAL,
+    )
+    record = WorkInOfficeRecord.objects.create(
+        employee=policy_employee,
+        work_date=end_day,
+        location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
+        review_state=WorkInOfficeRecord.ReviewState.REJECTED,
+        correction_deadline=now - timedelta(days=2),
+    )
+    period_admin = FiscalPeriodAdmin(FiscalPeriod, admin.site)
+    period_queryset = FiscalPeriod.objects.filter(pk=period.pk)
+    confirmation_request = RequestFactory().post(
+        "/admin/work_logs/fiscalperiod/",
+        {
+            "action": "reopen_for_correction",
+            "_selected_action": str(period.pk),
+        },
+    )
+    confirmation_request.user = hr
+
+    confirmation = period_admin.reopen_for_correction(
+        confirmation_request,
+        period_queryset,
+    )
+
+    assert confirmation.template_name == "admin/work_logs/wio_action_confirmation.html"
+    period.refresh_from_db()
+    assert period.state == FiscalPeriod.State.FINAL
+
+    reopen_request = RequestFactory().post(
+        "/admin/work_logs/fiscalperiod/",
+        {
+            "action": "reopen_for_correction",
+            "apply": "1",
+            "_selected_action": str(period.pk),
+            "audit_reason": "Correct verified attendance evidence",
+        },
+    )
+    reopen_request.user = hr
+    period_admin.reopen_for_correction(reopen_request, period_queryset)
+
+    period.refresh_from_db()
+    assert period.state == FiscalPeriod.State.RECONCILIATION
+    event = AuditEvent.objects.get(
+        event_type="work_logs.period_reopened",
+        target_id=str(period.pk),
+    )
+    assert event.metadata["reason"] == "Correct verified attendance evidence"
+    assert event.metadata["from_state"] == FiscalPeriod.State.FINAL
+    assert event.metadata["to_state"] == FiscalPeriod.State.RECONCILIATION
+
+    extension_request = RequestFactory().post(
+        "/admin/work_logs/workinofficerecord/",
+        {
+            "action": "extend_rejected_correction",
+            "apply": "1",
+            "_selected_action": str(record.pk),
+            "audit_reason": "Give employee one correction day",
+        },
+    )
+    extension_request.user = hr
+    WorkInOfficeRecordAdmin(WorkInOfficeRecord, admin.site).extend_rejected_correction(
+        extension_request,
+        WorkInOfficeRecord.objects.filter(pk=record.pk),
+    )
+
+    record.refresh_from_db()
+    assert record.correction_deadline > now
+    assert record.correction_deadline > period.reconciliation_cutoff
+
+
+def test_default_fiscal_cutoff_uses_company_timezone(db):
+    company = Company.objects.create(
+        name="California",
+        slug="california",
+        timezone="America/Los_Angeles",
+    )
+    period = FiscalPeriod.objects.create(
+        company=company,
+        name="Local cutoff",
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 31),
+    )
+
+    local_cutoff = period.reconciliation_cutoff.astimezone(ZoneInfo("America/Los_Angeles"))
+    assert local_cutoff.date() == date(2026, 2, 14)
+    assert local_cutoff.time() == time.max
+
+
+def test_wio_admin_actions_collect_reason_and_reverse_approval(policy_employee):
+    hr = User.objects.create_user(email="reverse-hr@example.com", is_staff=True)
+    CompanyMembership.objects.create(
+        user=hr,
+        company=policy_employee.company,
+        role=CompanyMembership.Role.HR_ADMIN,
+    )
+    manager = CompanyMembership.objects.create(
+        user=User.objects.create_user(email="reverse-manager@example.com"),
+        company=policy_employee.company,
+        role=CompanyMembership.Role.MANAGER,
+    )
+    ManagerAssignment.objects.create(
+        manager=manager,
+        employee=policy_employee,
+        effective_from=date(2026, 1, 1),
+    )
+    FiscalPeriod.objects.create(
+        company=policy_employee.company,
+        name="Reverse period",
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 7, 29),
+        reconciliation_cutoff=timezone.now() + timedelta(days=2),
+        state=FiscalPeriod.State.RECONCILIATION,
+    )
+    record = WorkInOfficeRecord.objects.create(
+        employee=policy_employee,
+        work_date=date(2026, 7, 29),
+        location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
+        review_state=WorkInOfficeRecord.ReviewState.APPROVED,
+        approval_method=WorkInOfficeRecord.ApprovalMethod.MANAGER_APPROVED,
+        approved_at=timezone.now() - timedelta(minutes=5),
+        approved_by_snapshot={"membership_id": manager.pk, "role": manager.role},
+        approval_owner_snapshot={
+            "membership_id": manager.pk,
+            "assigned_by_membership_id": 999,
+            "assigned_reason": "Prior audited reassignment",
+        },
+    )
+    site_admin = WorkInOfficeRecordAdmin(WorkInOfficeRecord, admin.site)
+    queryset = WorkInOfficeRecord.objects.filter(pk=record.pk)
+    confirmation_request = RequestFactory().post(
+        "/admin/work_logs/workinofficerecord/",
+        {
+            "action": "reverse_approved_records",
+            "_selected_action": str(record.pk),
+        },
+    )
+    confirmation_request.user = hr
+
+    confirmation = site_admin.reverse_approved_records(confirmation_request, queryset)
+
+    assert confirmation.template_name == "admin/work_logs/wio_action_confirmation.html"
+
+    request = RequestFactory().post(
+        "/admin/work_logs/workinofficerecord/",
+        {
+            "action": "reverse_approved_records",
+            "apply": "1",
+            "_selected_action": str(record.pk),
+            "audit_reason": "Approval evidence was invalid",
+        },
+    )
+    request.user = hr
+    site_admin.reverse_approved_records(request, queryset)
+
+    record.refresh_from_db()
+    assert record.review_state == WorkInOfficeRecord.ReviewState.PENDING
+    assert record.approval_method is None
+    assert record.approved_at is None
+    assert record.approved_by_snapshot == {}
+    assert record.approval_owner_snapshot == {
+        "membership_id": manager.pk,
+        "assigned_by_membership_id": 999,
+        "assigned_reason": "Prior audited reassignment",
+    }
+    event = AuditEvent.objects.get(
+        event_type="work_logs.approval_reversed_by_admin",
+        target_id=str(record.pk),
+    )
+    assert event.metadata["reason"] == "Approval evidence was invalid"
+    assert event.metadata["from_state"] == WorkInOfficeRecord.ReviewState.APPROVED
+    assert event.metadata["to_state"] == WorkInOfficeRecord.ReviewState.PENDING

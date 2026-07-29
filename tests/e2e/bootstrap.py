@@ -1,6 +1,7 @@
 import os
 import shutil
 import sys
+from datetime import date
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -26,7 +27,7 @@ def bootstrap() -> None:
 
     from django.core.management import call_command
 
-    from apps.accounts.models import Company, CompanyMembership, User
+    from apps.accounts.models import Company, CompanyMembership, ManagerAssignment, User
 
     call_command("migrate", interactive=False, verbosity=0)
     company = Company.objects.create(
@@ -39,11 +40,27 @@ def bootstrap() -> None:
         first_name="E2E",
         last_name="Employee",
     )
-    CompanyMembership.objects.create(
+    employee = CompanyMembership.objects.create(
         company=company,
         is_active=True,
         role=CompanyMembership.Role.EMPLOYEE,
         user=user,
+    )
+    manager_user = User.objects.create_user(
+        email="e2e.manager@example.com",
+        first_name="E2E",
+        last_name="Manager",
+    )
+    manager = CompanyMembership.objects.create(
+        company=company,
+        is_active=True,
+        role=CompanyMembership.Role.MANAGER,
+        user=manager_user,
+    )
+    ManagerAssignment.objects.create(
+        employee=employee,
+        manager=manager,
+        effective_from=date(2026, 7, 29),
     )
 
 

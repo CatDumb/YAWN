@@ -4,6 +4,7 @@ from datetime import timedelta
 import pytest
 from django.contrib.auth.hashers import make_password
 from django.core import mail
+from django.db.models import QuerySet
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
@@ -394,6 +395,117 @@ def test_hr_admin_can_reactivate_membership_only_in_managed_company(client, comp
     assert AuditEvent.objects.filter(
         actor=hr_admin,
         event_type="accounts.membership_reactivated",
+        target_id=str(member.pk),
+        metadata={"company_id": company.pk, "user_id": member.user_id},
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_superuser_membership_state_changes_require_audited_actions(
+    client,
+    company,
+    superuser,
+    monkeypatch,
+):
+    member = CompanyMembership.objects.create(
+        user=User.objects.create_user(email="superuser-lifecycle@example.com"),
+        company=company,
+        role=CompanyMembership.Role.EMPLOYEE,
+        is_active=False,
+    )
+    client.force_login(superuser)
+    membership_url = reverse("admin:accounts_companymembership_changelist")
+    membership_change_url = reverse("admin:accounts_companymembership_change", args=[member.pk])
+
+    direct_change = client.post(
+        membership_change_url,
+        {
+            "user": member.user_id,
+            "company": company.pk,
+            "role": CompanyMembership.Role.EMPLOYEE,
+            "is_active": "on",
+            "_save": "Save",
+        },
+    )
+
+    assert direct_change.status_code == 302
+    member.refresh_from_db()
+    assert member.is_active is False
+    assert not AuditEvent.objects.filter(
+        actor=superuser,
+        event_type="accounts.membership_reactivated",
+        target_id=str(member.pk),
+    ).exists()
+
+    locked_models = []
+    original_select_for_update = QuerySet.select_for_update
+
+    def track_select_for_update(queryset, *args, **kwargs):
+        locked_models.append(queryset.model)
+        return original_select_for_update(queryset, *args, **kwargs)
+
+    monkeypatch.setattr(QuerySet, "select_for_update", track_select_for_update)
+    run_admin_action(
+        client,
+        membership_url,
+        "reactivate_selected_memberships",
+        member.pk,
+    )
+
+    assert locked_models[:2] == [User, CompanyMembership]
+    member.refresh_from_db()
+    assert member.is_active is True
+    assert AuditEvent.objects.filter(
+        actor=superuser,
+        event_type="accounts.membership_reactivated",
+        target_id=str(member.pk),
+        metadata={"company_id": company.pk, "user_id": member.user_id},
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_hr_admin_can_auditably_deactivate_membership_only_in_managed_company(
+    client,
+    company,
+):
+    hr_admin = User.objects.create_user(email="deactivate-hr@example.com", is_staff=True)
+    CompanyMembership.objects.create(
+        user=hr_admin,
+        company=company,
+        role=CompanyMembership.Role.HR_ADMIN,
+    )
+    member = CompanyMembership.objects.create(
+        user=User.objects.create_user(email="deactivate-employee@example.com"),
+        company=company,
+    )
+    other_company = Company.objects.create(name="Other Deactivation", slug="other-deactivation")
+    other_member = CompanyMembership.objects.create(
+        user=User.objects.create_user(email="other-deactivate@example.com"),
+        company=other_company,
+    )
+    client.force_login(hr_admin)
+    membership_url = reverse("admin:accounts_companymembership_changelist")
+
+    run_admin_action(
+        client,
+        membership_url,
+        "deactivate_selected_memberships",
+        member.pk,
+    )
+    run_admin_action(
+        client,
+        membership_url,
+        "deactivate_selected_memberships",
+        other_member.pk,
+    )
+
+    member.refresh_from_db()
+    other_member.refresh_from_db()
+    assert member.is_active is False
+    assert other_member.is_active is True
+    assert AuditEvent.objects.filter(
+        actor=hr_admin,
+        event_type="accounts.membership_deactivated",
         target_id=str(member.pk),
         metadata={"company_id": company.pk, "user_id": member.user_id},
     ).exists()

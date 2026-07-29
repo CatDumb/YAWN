@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -230,7 +231,7 @@ function responseFor(url: string) {
       })),
     });
   }
-  if (url === "/api/v1/auth/me/") {
+  if (url === "/api/v1/users/me/") {
     return response({ memberships: [{ role: "manager" }] });
   }
   if (url.startsWith("/api/v1/approvals/?")) {
@@ -242,6 +243,7 @@ function responseFor(url: string) {
         base_location_name: "HCM",
         work_date: "2026-07-24",
         note_present: true,
+        review_state: "pending",
         version: 1,
         submitted_at: "2026-07-24T01:00:00Z",
       },
@@ -249,6 +251,24 @@ function responseFor(url: string) {
   }
   if (url === "/api/v1/approvals/count/") {
     return response({ count: 1, oldest_submitted_at: "2026-07-24T01:00:00Z" });
+  }
+  if (url === "/api/v1/approvals/7/timeline/?page=1") {
+    return response({
+      results: [
+        {
+          id: 31,
+          event_type: "work_logs.record_resubmitted",
+          details: {
+            reason: "Evidence corrected",
+            revision: 2,
+            from_state: "rejected",
+            to_state: "pending",
+          },
+          created_at: "2026-07-24T00:00:00Z",
+        },
+      ],
+      next_page: null,
+    });
   }
   if (url === "/api/v1/approvals/7/approve/") return response({ version: 2 });
   if (url === "/api/v1/approvals/7/reject/") return response({ version: 2 });
@@ -442,14 +462,120 @@ describe("Phase 3 page contracts", () => {
     );
   });
 
+  it("loads the assigned manager's sanitized claim history on demand", async () => {
+    render(<ApprovalsPage />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "View history" }),
+    );
+
+    expect(
+      await screen.findByText("Corrected and resubmitted"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Evidence corrected")).toBeInTheDocument();
+    expect(apiFetch).toHaveBeenCalledWith(
+      "/api/v1/approvals/7/timeline/?page=1",
+    );
+  });
+
+  it("ignores a stale history response after another claim is opened", async () => {
+    const firstTimeline = deferred<Response>();
+    apiFetch.mockImplementation((url: string) => {
+      if (url === "/api/v1/users/me/") {
+        return Promise.resolve(
+          response({ memberships: [{ role: "manager" }] }),
+        );
+      }
+      if (url.startsWith("/api/v1/approvals/?")) {
+        return Promise.resolve(
+          response([
+            {
+              id: 7,
+              employee_name: "Ada Lovelace",
+              employee_email: "ada@example.com",
+              base_location_name: "HCM",
+              work_date: "2026-07-24",
+              note_present: true,
+              review_state: "pending",
+              version: 1,
+              submitted_at: "2026-07-24T01:00:00Z",
+            },
+            {
+              id: 8,
+              employee_name: "Grace Hopper",
+              employee_email: "grace@example.com",
+              base_location_name: "HCM",
+              work_date: "2026-07-25",
+              note_present: false,
+              review_state: "pending",
+              version: 1,
+              submitted_at: "2026-07-25T01:00:00Z",
+            },
+          ]),
+        );
+      }
+      if (url === "/api/v1/approvals/count/") {
+        return Promise.resolve(response({ count: 2 }));
+      }
+      if (url === "/api/v1/approvals/7/timeline/?page=1") {
+        return firstTimeline.promise;
+      }
+      if (url === "/api/v1/approvals/8/timeline/?page=1") {
+        return Promise.resolve(
+          response({
+            results: [
+              {
+                id: 42,
+                event_type: "work_logs.record_pending_reassigned",
+                details: { reason: "Coverage changed" },
+                created_at: "2026-07-25T02:00:00Z",
+              },
+            ],
+            next_page: null,
+          }),
+        );
+      }
+      return Promise.resolve(responseFor(url));
+    });
+    render(<ApprovalsPage />);
+
+    const historyButtons = await screen.findAllByRole("button", {
+      name: "View history",
+    });
+    fireEvent.click(historyButtons[0]);
+    fireEvent.click(screen.getByRole("button", { name: "View history" }));
+    expect(await screen.findByText("Manager reassigned")).toBeInTheDocument();
+
+    await act(async () => {
+      firstTimeline.resolve(
+        response({
+          results: [
+            {
+              id: 41,
+              event_type: "work_logs.record_pending_assignment_resolved",
+              details: {},
+              created_at: "2026-07-24T02:00:00Z",
+            },
+          ],
+          next_page: null,
+        }),
+      );
+      await firstTimeline.promise;
+    });
+    expect(
+      screen.queryByText("Manager assignment resolved"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Manager reassigned")).toBeInTheDocument();
+  });
+
   it("renders HR assignment work and submits an audited assignment", async () => {
     apiFetch.mockImplementation((url: string) => {
-      if (url === "/api/v1/auth/me/") {
+      if (url === "/api/v1/users/me/") {
         return Promise.resolve(
           response({ memberships: [{ role: "hr_admin" }] }),
         );
       }
-      if (url.startsWith("/api/v1/approvals/pending-assignment/")) {
+      if (url.startsWith("/api/v1/approvals/ownership/")) {
         return Promise.resolve(
           response([
             {
@@ -459,6 +585,7 @@ describe("Phase 3 page contracts", () => {
               base_location_name: "HCM",
               work_date: "2026-07-24",
               note_present: false,
+              review_state: "pending",
               version: 1,
               submitted_at: "2026-07-24T01:00:00Z",
             },
@@ -477,7 +604,7 @@ describe("Phase 3 page contracts", () => {
     render(<ApprovalsPage />);
 
     fireEvent.click(
-      await screen.findByRole("button", { name: "Assign manager" }),
+      await screen.findByRole("button", { name: "Reassign manager" }),
     );
     fireEvent.change(screen.getByLabelText("Active manager"), {
       target: { value: "9" },
@@ -485,7 +612,7 @@ describe("Phase 3 page contracts", () => {
     fireEvent.change(screen.getByLabelText("Assignment reason"), {
       target: { value: "Effective owner confirmed" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Assign manager" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reassign manager" }));
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith(
         "/api/v1/approvals/8/assign/",

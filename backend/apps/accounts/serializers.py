@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.accounts.models import User, UserPreference
@@ -50,7 +51,14 @@ class MembershipSerializer(serializers.Serializer):
 
 
 class CurrentUserSerializer(serializers.ModelSerializer):
-    memberships = MembershipSerializer(many=True, read_only=True)
+    memberships = serializers.SerializerMethodField()
+
+    @extend_schema_field(MembershipSerializer(many=True))
+    def get_memberships(self, obj):
+        memberships = obj.memberships.filter(
+            is_active=True, company__is_active=True
+        ).select_related("company")
+        return MembershipSerializer(memberships, many=True).data
 
     class Meta:
         model = User

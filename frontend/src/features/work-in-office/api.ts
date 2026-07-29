@@ -25,13 +25,20 @@ export type WorkInOfficeRecord = {
 };
 
 export type WorkInOfficeAuditEvent = {
+  id: number;
   event_type: string;
-  metadata: Record<string, string | null>;
+  metadata: Record<string, string | number | null>;
   created_at: string;
 };
 
 export type WorkInOfficeRecordDetail = WorkInOfficeRecord & {
   audit_timeline: WorkInOfficeAuditEvent[];
+  audit_timeline_next_page: number | null;
+};
+
+export type WorkInOfficeAuditPage = {
+  results: WorkInOfficeAuditEvent[];
+  next_page: number | null;
 };
 
 export type WorkInOfficeMetadata = {
@@ -43,24 +50,61 @@ export type WorkInOfficeInput = {
   work_date: string;
   location_choice?: WorkInOfficeRecord["location_choice"];
   note?: string;
+  save_as_draft?: boolean;
   version?: number;
 };
 
-async function read<T>(response: Response, fallbackDetail: string): Promise<T> {
-  if (!response.ok) throw await apiErrorFromResponse(response, fallbackDetail);
+export const WIO_EDITABLE_FIELDS = [
+  "work_date",
+  "location_choice",
+  "note",
+] as const;
+export type WorkInOfficeEditableField = (typeof WIO_EDITABLE_FIELDS)[number];
+
+async function read<T, TField extends string = never>(
+  response: Response,
+  fallbackDetail: string,
+  allowedFields: readonly TField[] = [],
+): Promise<T> {
+  if (!response.ok) {
+    throw await apiErrorFromResponse(response, fallbackDetail, allowedFields);
+  }
   return response.json() as Promise<T>;
 }
 
-export async function listWorkInOffice(params: string, fallbackDetail: string) {
+export async function listWorkInOffice(
+  params: string,
+  fallbackDetail: string,
+  signal?: AbortSignal,
+) {
   return read<WorkInOfficeRecord[]>(
-    await apiFetch(`/api/v1/work-in-office/${params}`),
+    await (signal
+      ? apiFetch(`/api/v1/work-in-office/${params}`, { signal })
+      : apiFetch(`/api/v1/work-in-office/${params}`)),
     fallbackDetail,
   );
 }
 
-export async function getWorkInOffice(id: string, fallbackDetail: string) {
+export async function getWorkInOffice(
+  id: string,
+  fallbackDetail: string,
+  signal?: AbortSignal,
+) {
   return read<WorkInOfficeRecordDetail>(
-    await apiFetch(`/api/v1/work-in-office/${id}/`),
+    await (signal
+      ? apiFetch(`/api/v1/work-in-office/${id}/`, { signal })
+      : apiFetch(`/api/v1/work-in-office/${id}/`)),
+    fallbackDetail,
+  );
+}
+
+export async function getWorkInOfficeTimeline(
+  id: string,
+  page: number,
+  fallbackDetail: string,
+) {
+  return read<WorkInOfficeAuditPage>(
+    await apiFetch(`/api/v1/work-in-office/${id}/timeline/?page=${page}`),
     fallbackDetail,
   );
 }
@@ -77,12 +121,13 @@ export async function saveWorkInOffice(
   id: string | undefined,
   fallbackDetail: string,
 ) {
-  return read<WorkInOfficeRecord>(
+  return read<WorkInOfficeRecord, WorkInOfficeEditableField>(
     await apiFetch(`/api/v1/work-in-office/${id ? `${id}/` : ""}`, {
       method: id ? "PUT" : "POST",
       body: JSON.stringify(input),
     }),
     fallbackDetail,
+    WIO_EDITABLE_FIELDS,
   );
 }
 

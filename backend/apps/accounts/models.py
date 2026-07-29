@@ -6,9 +6,22 @@ from django.conf import settings
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
-from django.db import models, transaction
+from django.db import connections, models, router, transaction
 from django.db.models import Q
 from django.utils import timezone
+
+_SINGLE_ACTIVE_COMPANY_LOCK_ID = 8_044_659_113_421_991_253
+
+
+def lock_single_active_company(connection):
+    """Serialize the production-only singleton check, including the empty table."""
+    if connection.vendor != "postgresql":
+        return
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(%s)",
+            [_SINGLE_ACTIVE_COMPANY_LOCK_ID],
+        )
 
 
 class UserManager(BaseUserManager):
@@ -58,13 +71,20 @@ class Company(models.Model):
 
     def save(self, *args, **kwargs):
         self.email_domain = self.email_domain.strip().lower()
-        if (
-            settings.WIO_ENFORCE_SINGLE_COMPANY
-            and self.is_active
-            and Company.objects.exclude(pk=self.pk).filter(is_active=True).exists()
-        ):
-            raise ValidationError("Only one active company is supported.")
-        super().save(*args, **kwargs)
+        if settings.WIO_ENFORCE_SINGLE_COMPANY and self.is_active:
+            database = kwargs.get("using") or router.db_for_write(type(self), instance=self)
+            with transaction.atomic(using=database):
+                lock_single_active_company(connections[database])
+                if (
+                    type(self)
+                    .objects.using(database)
+                    .exclude(pk=self.pk)
+                    .filter(is_active=True)
+                    .exists()
+                ):
+                    raise ValidationError("Only one active company is supported.")
+                return super().save(*args, **kwargs)
+        return super().save(*args, **kwargs)
 
 
 class User(AbstractUser):
@@ -119,8 +139,10 @@ class CompanyMembership(models.Model):
         return f"{self.user.email} at {self.company.name}"
 
     def save(self, *args, **kwargs):
-        self.full_clean()
-        super().save(*args, **kwargs)
+        with transaction.atomic():
+            User.objects.select_for_update().get(pk=self.user_id)
+            self.full_clean()
+            super().save(*args, **kwargs)
 
     def clean(self):
         super().clean()
@@ -198,11 +220,8 @@ class ManagerAssignment(models.Model):
             raise ValidationError("Manager and employee must be different memberships.")
         if self.manager.company_id != self.employee.company_id:
             raise ValidationError("Manager and employee must belong to the same company.")
-        if self.manager.role not in {
-            CompanyMembership.Role.MANAGER,
-            CompanyMembership.Role.HR_ADMIN,
-        }:
-            raise ValidationError("Manager membership must have manager or HR/admin role.")
+        if self.manager.role != CompanyMembership.Role.MANAGER:
+            raise ValidationError("Manager membership must have manager role.")
         if self.effective_to and self.effective_to < self.effective_from:
             raise ValidationError("End date cannot be before start date.")
         overlaps = (

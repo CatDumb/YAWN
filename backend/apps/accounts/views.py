@@ -55,7 +55,7 @@ def _signup_fingerprint(request):
 
 
 def _eligible_user(email):
-    return (
+    user = (
         User.objects.filter(
             email__iexact=email,
             is_active=True,
@@ -65,6 +65,13 @@ def _eligible_user(email):
         .distinct()
         .first()
     )
+    if user is None:
+        return None
+    active_scope_count = user.memberships.filter(
+        is_active=True,
+        company__is_active=True,
+    ).count()
+    return user if active_scope_count == 1 else None
 
 
 def _rate_limit_keys(email, fingerprint):
@@ -292,8 +299,30 @@ class LogoutView(APIView):
 
 
 class CurrentUserView(APIView):
-    @extend_schema(responses=CurrentUserSerializer)
+    @extend_schema(
+        responses={
+            200: CurrentUserSerializer,
+            409: inline_serializer(
+                name="AmbiguousCompanyScopeError",
+                fields={"detail": serializers.CharField()},
+            ),
+        }
+    )
     def get(self, request):
+        active_scope_count = request.user.memberships.filter(
+            is_active=True,
+            company__is_active=True,
+        ).count()
+        if active_scope_count != 1:
+            return Response(
+                {
+                    "detail": (
+                        "Active company scope is missing or ambiguous. "
+                        "Contact HR/admin to repair membership."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         return Response(CurrentUserSerializer(request.user).data)
 
 

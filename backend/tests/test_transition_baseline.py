@@ -78,6 +78,8 @@ def test_transition_baseline_blocks_legacy_dates_and_pre_cutoff_report(
     policy_employee, transition_period
 ):
     create_baseline(policy_employee)
+    policy_employee.role = CompanyMembership.Role.HR_ADMIN
+    policy_employee.save(update_fields=["role"])
 
     with pytest.raises(ValidationError, match="legacy transition balance"):
         save_record(
@@ -173,4 +175,23 @@ def test_transition_baseline_rejects_owned_wio_on_or_before_cutoff(
     )
 
     with pytest.raises(ValidationError, match="must precede your earliest"):
+        create_baseline(policy_employee)
+
+
+def test_transition_baseline_fails_closed_for_ambiguous_legacy_periods(
+    policy_employee, transition_period
+):
+    FiscalPeriod.objects.bulk_create(
+        [
+            FiscalPeriod(
+                company=policy_employee.company,
+                name="Legacy overlap",
+                start_date=date(2026, 6, 1),
+                end_date=date(2026, 7, 31),
+                reconciliation_cutoff=transition_period.reconciliation_cutoff,
+            )
+        ]
+    )
+
+    with pytest.raises(ValidationError, match="exactly one fiscal period"):
         create_baseline(policy_employee)

@@ -8,6 +8,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+from apps.accounts.models import Company
 from apps.audit.models import AuditEvent
 from apps.work_logs.models import FiscalFinalizationStep, FiscalPeriod
 
@@ -22,7 +23,11 @@ def _step_current(period: FiscalPeriod, checkpoint: FiscalFinalizationStep) -> b
 
 @transaction.atomic
 def run_finalization(period_id: int, steps: dict[str, Callable[[FiscalPeriod], dict | None]]):
+    company_id = FiscalPeriod.objects.values_list("company_id", flat=True).get(pk=period_id)
+    Company.objects.select_for_update().get(pk=company_id)
     period = FiscalPeriod.objects.select_for_update().get(pk=period_id)
+    if period.company_id != company_id:
+        raise RuntimeError("Fiscal period changed while acquiring its company lock.")
     if period.state == FiscalPeriod.State.FINAL:
         return period
     if timezone.now() < period.reconciliation_cutoff:

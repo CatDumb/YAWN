@@ -6,7 +6,13 @@ info:
 paths:
   /api/v1/approvals/:
     get:
-      operationId: v1_approvals_retrieve
+      operationId: v1_approvals_list
+      parameters:
+      - in: query
+        name: page
+        schema:
+          type: integer
+          minimum: 1
       tags:
       - v1
       security:
@@ -16,8 +22,9 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: {}
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApprovalWorkInOfficeRecord'
           description: ''
   /api/v1/approvals/{id}/{action}/:
     post:
@@ -39,16 +46,14 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: {}
+              $ref: '#/components/schemas/ApprovalDecisionRequest'
           application/x-www-form-urlencoded:
             schema:
-              type: object
-              additionalProperties: {}
+              $ref: '#/components/schemas/ApprovalDecisionRequest'
           multipart/form-data:
             schema:
-              type: object
-              additionalProperties: {}
+              $ref: '#/components/schemas/ApprovalDecisionRequest'
+        required: true
       security:
       - cookieAuth: []
       responses:
@@ -56,11 +61,42 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WorkInOfficeRecord'
+                $ref: '#/components/schemas/ApprovalWorkInOfficeRecord'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+          description: ''
+  /api/v1/approvals/{id}/timeline/:
+    get:
+      operationId: v1_approvals_timeline_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: query
+        name: page
+        schema:
+          type: integer
+          minimum: 1
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagerAuditTimelinePage'
           description: ''
   /api/v1/approvals/assignees/:
     get:
-      operationId: v1_approvals_assignees_retrieve
+      operationId: v1_approvals_assignees_list
       description: Active same-company managers an HR/admin user may assign a pending
         claim to.
       tags:
@@ -72,8 +108,9 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: {}
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApprovalAssignee'
           description: ''
   /api/v1/approvals/count/:
     get:
@@ -90,9 +127,41 @@ paths:
                 type: object
                 additionalProperties: {}
           description: ''
+  /api/v1/approvals/ownership/:
+    get:
+      operationId: v1_approvals_ownership_list
+      parameters:
+      - in: query
+        name: page
+        schema:
+          type: integer
+          minimum: 1
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          headers:
+            X-Has-Next:
+              schema:
+                type: boolean
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApprovalWorkInOfficeRecord'
+          description: ''
   /api/v1/approvals/pending-assignment/:
     get:
-      operationId: v1_approvals_pending_assignment_retrieve
+      operationId: v1_approvals_pending_assignment_list
+      parameters:
+      - in: query
+        name: page
+        schema:
+          type: integer
+          minimum: 1
       tags:
       - v1
       security:
@@ -102,8 +171,9 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: {}
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApprovalWorkInOfficeRecord'
           description: ''
   /api/v1/auth/csrf/:
     get:
@@ -487,6 +557,73 @@ paths:
                 type: string
                 format: binary
           description: ''
+  /api/v1/transition-baseline/:
+    get:
+      operationId: v1_transition_baseline_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+    post:
+      operationId: v1_transition_baseline_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransitionBaselineInput'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TransitionBaselineInput'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TransitionBaselineInput'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+    put:
+      operationId: v1_transition_baseline_update
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransitionBaselineInput'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TransitionBaselineInput'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TransitionBaselineInput'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
   /api/v1/users/me/:
     get:
       operationId: v1_users_me_retrieve
@@ -501,9 +638,74 @@ paths:
               schema:
                 $ref: '#/components/schemas/CurrentUser'
           description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AmbiguousCompanyScopeError'
+          description: ''
   /api/v1/work-in-office/:
     get:
       operationId: v1_work_in_office_list
+      parameters:
+      - in: query
+        name: attention
+        schema:
+          type: boolean
+          default: false
+      - in: query
+        name: end_date
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: location_choice
+        schema:
+          enum:
+          - in_office
+          - not_in_office
+          type: string
+          minLength: 1
+        description: |-
+          * `in_office` - In office
+          * `not_in_office` - Not in office
+      - in: query
+        name: month
+        schema:
+          type: string
+          pattern: ^\d{4}-(0[1-9]|1[0-2])$
+          minLength: 1
+      - in: query
+        name: review_state
+        schema:
+          enum:
+          - draft
+          - pending
+          - pending_assignment
+          - approved
+          - rejected
+          - not_required
+          - expired_pending
+          type: string
+          minLength: 1
+        description: |-
+          * `draft` - Draft
+          * `pending` - Pending
+          * `pending_assignment` - Pending assignment
+          * `approved` - Approved
+          * `rejected` - Rejected
+          * `not_required` - Not required
+          * `expired_pending` - Expired pending
+      - in: query
+        name: start_date
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: work_date
+        schema:
+          type: string
+          format: date
       tags:
       - v1
       security:
@@ -525,13 +727,13 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/WorkInOfficeRecord'
+              $ref: '#/components/schemas/WorkInOfficeCreate'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/WorkInOfficeRecord'
+              $ref: '#/components/schemas/WorkInOfficeCreate'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/WorkInOfficeRecord'
+              $ref: '#/components/schemas/WorkInOfficeCreate'
         required: true
       security:
       - cookieAuth: []
@@ -560,7 +762,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WorkInOfficeRecord'
+                $ref: '#/components/schemas/WorkInOfficeDetail'
           description: ''
     put:
       operationId: v1_work_in_office_update
@@ -576,13 +778,13 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/WorkInOfficeRecord'
+              $ref: '#/components/schemas/WorkInOfficeUpdate'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/WorkInOfficeRecord'
+              $ref: '#/components/schemas/WorkInOfficeUpdate'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/WorkInOfficeRecord'
+              $ref: '#/components/schemas/WorkInOfficeUpdate'
         required: true
       security:
       - cookieAuth: []
@@ -593,6 +795,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/WorkInOfficeRecord'
           description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+          description: ''
     delete:
       operationId: v1_work_in_office_destroy
       parameters:
@@ -601,6 +809,12 @@ paths:
         schema:
           type: integer
         required: true
+      - in: query
+        name: version
+        schema:
+          type: integer
+          minimum: 1
+        required: true
       tags:
       - v1
       security:
@@ -608,6 +822,75 @@ paths:
       responses:
         '204':
           description: No response body
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+          description: ''
+  /api/v1/work-in-office/{id}/timeline/:
+    get:
+      operationId: v1_work_in_office_timeline_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: query
+        name: page
+        schema:
+          type: integer
+          minimum: 1
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditTimelinePage'
+          description: ''
+  /api/v1/work-in-office/{id}/undo-self-approval/:
+    post:
+      operationId: v1_work_in_office_undo_self_approval_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VersionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/VersionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/VersionRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkInOfficeRecord'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+          description: ''
   /api/v1/work-in-office/meta/:
     get:
       operationId: v1_work_in_office_meta_retrieve
@@ -648,6 +931,140 @@ components:
           type: string
       required:
       - detail
+    AmbiguousCompanyScopeError:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    ApprovalAssignee:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+      required:
+      - email
+      - id
+      - name
+    ApprovalDecisionRequest:
+      type: object
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        reason:
+          type: string
+          description: Required for Reject and Assign actions.
+          maxLength: 500
+        manager_membership_id:
+          type: integer
+          minimum: 1
+          description: Required for Assign actions.
+      required:
+      - version
+    ApprovalMethodEnum:
+      enum:
+      - manager_approved
+      - self_approved
+      type: string
+      description: |-
+        * `manager_approved` - Manager approved
+        * `self_approved` - Self approved
+    ApprovalWorkInOfficeRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        employee_name:
+          type: string
+          readOnly: true
+        employee_email:
+          type: string
+          format: email
+          readOnly: true
+        base_location_name:
+          type: string
+          readOnly: true
+          nullable: true
+        work_date:
+          type: string
+          format: date
+        location_choice:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/LocationChoiceEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        review_state:
+          $ref: '#/components/schemas/ReviewStateEnum'
+        note_present:
+          type: boolean
+          readOnly: true
+        version:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        approved_at:
+          type: string
+          format: date-time
+          nullable: true
+        submitted_at:
+          type: string
+          format: date-time
+          nullable: true
+        rejected_at:
+          type: string
+          format: date-time
+          nullable: true
+        correction_deadline:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - base_location_name
+      - employee_email
+      - employee_name
+      - id
+      - note_present
+      - work_date
+    AuditEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        event_type:
+          type: string
+          maxLength: 100
+        metadata: {}
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - event_type
+      - id
+    AuditTimelinePage:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        next_page:
+          type: integer
+          nullable: true
+      required:
+      - next_page
+      - results
     BlankEnum:
       enum:
       - ''
@@ -683,6 +1100,13 @@ components:
       - email
       - id
       - memberships
+    ErrorDetail:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
     LanguageEnum:
       enum:
       - en
@@ -699,6 +1123,41 @@ components:
       description: |-
         * `in_office` - In office
         * `not_in_office` - Not in office
+    ManagerAuditEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        event_type:
+          type: string
+          maxLength: 100
+        details:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - details
+      - event_type
+      - id
+    ManagerAuditTimelinePage:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ManagerAuditEvent'
+        next_page:
+          type: integer
+          nullable: true
+      required:
+      - next_page
+      - results
     Membership:
       type: object
       properties:
@@ -778,6 +1237,27 @@ components:
         * `system` - System
         * `light` - Light
         * `dark` - Dark
+    TransitionBaselineInput:
+      type: object
+      properties:
+        cutoff_month:
+          type: string
+          pattern: ^\d{4}-(0[1-9]|1[0-2])$
+        target_days:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        achieved_days:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        version:
+          type: integer
+          minimum: 1
+      required:
+      - achieved_days
+      - cutoff_month
+      - target_days
     UserPreference:
       type: object
       properties:
@@ -795,9 +1275,8 @@ components:
           maxLength: 12
         week_start:
           type: integer
-          maximum: 9223372036854775807
+          maximum: 32767
           minimum: 0
-          format: int64
         display_name:
           type: string
           maxLength: 150
@@ -806,7 +1285,34 @@ components:
           readOnly: true
       required:
       - version
-    WorkInOfficeRecord:
+    VersionRequest:
+      type: object
+      properties:
+        version:
+          type: integer
+          minimum: 1
+      required:
+      - version
+    WorkInOfficeCreate:
+      type: object
+      properties:
+        work_date:
+          type: string
+          format: date
+        location_choice:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/LocationChoiceEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        note:
+          type: string
+          maxLength: 500
+        save_as_draft:
+          type: boolean
+          default: false
+      required:
+      - work_date
+    WorkInOfficeDetail:
       type: object
       properties:
         id:
@@ -832,6 +1338,10 @@ components:
           - $ref: '#/components/schemas/LocationChoiceEnum'
           - $ref: '#/components/schemas/BlankEnum'
           - $ref: '#/components/schemas/NullEnum'
+        save_as_draft:
+          type: boolean
+          writeOnly: true
+          default: false
         review_state:
           allOf:
           - $ref: '#/components/schemas/ReviewStateEnum'
@@ -858,6 +1368,128 @@ components:
           nullable: true
         approved_by_snapshot:
           readOnly: true
+        approval_method:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/ApprovalMethodEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        submitted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        rejected_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        correction_deadline:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        audit_timeline:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+          readOnly: true
+        audit_timeline_next_page:
+          type: integer
+          readOnly: true
+          nullable: true
+      required:
+      - approval_method
+      - approval_owner_snapshot
+      - approved_at
+      - approved_by_snapshot
+      - approver_note
+      - assignment_snapshot
+      - audit_timeline
+      - audit_timeline_next_page
+      - base_location_name
+      - correction_deadline
+      - created_at
+      - employee_email
+      - employee_name
+      - id
+      - policy_snapshot
+      - rejected_at
+      - review_state
+      - submitted_at
+      - updated_at
+      - version
+      - work_date
+    WorkInOfficeRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        employee_name:
+          type: string
+          readOnly: true
+        employee_email:
+          type: string
+          format: email
+          readOnly: true
+        base_location_name:
+          type: string
+          readOnly: true
+          nullable: true
+        work_date:
+          type: string
+          format: date
+        location_choice:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/LocationChoiceEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        save_as_draft:
+          type: boolean
+          writeOnly: true
+          default: false
+        review_state:
+          allOf:
+          - $ref: '#/components/schemas/ReviewStateEnum'
+          readOnly: true
+        note:
+          type: string
+          maxLength: 500
+        approver_note:
+          type: string
+          readOnly: true
+        version:
+          type: integer
+          readOnly: true
+        assignment_snapshot:
+          readOnly: true
+        policy_snapshot:
+          readOnly: true
+        approval_owner_snapshot:
+          readOnly: true
+        approved_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        approved_by_snapshot:
+          readOnly: true
+        approval_method:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/ApprovalMethodEnum'
+          - $ref: '#/components/schemas/NullEnum'
         created_at:
           type: string
           format: date-time
@@ -882,6 +1514,7 @@ components:
           readOnly: true
           nullable: true
       required:
+      - approval_method
       - approval_owner_snapshot
       - approved_at
       - approved_by_snapshot
@@ -898,6 +1531,29 @@ components:
       - review_state
       - submitted_at
       - updated_at
+      - version
+      - work_date
+    WorkInOfficeUpdate:
+      type: object
+      properties:
+        work_date:
+          type: string
+          format: date
+        location_choice:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/LocationChoiceEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        note:
+          type: string
+          maxLength: 500
+        save_as_draft:
+          type: boolean
+          default: false
+        version:
+          type: integer
+          minimum: 1
+      required:
       - version
       - work_date
   securitySchemes:

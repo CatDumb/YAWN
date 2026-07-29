@@ -3,20 +3,30 @@ import logging
 from datetime import date, timedelta
 from decimal import Decimal
 from io import StringIO
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.core.management import CommandError, call_command
 from django.db import IntegrityError, connection, transaction
+from django.db.models import QuerySet
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from apps.accounts.models import Company, CompanyMembership, ManagerAssignment, User, UserPreference
 from apps.audit.models import AuditEvent
-from apps.work_logs.approvals import expire_pending_for_period, reject_scoped_record
+from apps.work_logs.approvals import (
+    approve_record,
+    assign_pending_record,
+    expire_pending_for_period,
+    manager_membership,
+    reject_scoped_record,
+    undo_approval,
+)
 from apps.work_logs.finalization import run_finalization
 from apps.work_logs.models import (
     ApprovedLeave,
@@ -40,12 +50,106 @@ from apps.work_logs.planner import (
     save_intentions,
 )
 from apps.work_logs.reports import csv_response, freeze_period_ledgers, report_for
-from apps.work_logs.services import save_record
+from apps.work_logs.services import reverse_approved_record, save_record, undo_self_approval
 
 
 def membership(*, email, company, role=CompanyMembership.Role.EMPLOYEE):
     user = User.objects.create_user(email=email)
     return CompanyMembership.objects.create(user=user, company=company, role=role)
+
+
+def test_manager_scope_fails_closed_for_ambiguous_active_memberships(db):
+    user = User.objects.create_user(email="ambiguous-manager@example.com")
+    first_company = Company.objects.create(name="First", slug="first")
+    second_company = Company.objects.create(name="Second", slug="second")
+    CompanyMembership.objects.create(
+        user=user,
+        company=first_company,
+        role=CompanyMembership.Role.MANAGER,
+    )
+    CompanyMembership.objects.create(
+        user=user,
+        company=second_company,
+        role=CompanyMembership.Role.MANAGER,
+    )
+
+    with pytest.raises(ValidationError, match="ambiguous"):
+        manager_membership(user)
+
+
+def test_approval_api_fails_closed_for_cross_role_company_ambiguity(client, db):
+    user = User.objects.create_user(email="cross-role-manager@example.com")
+    managed_company = Company.objects.create(name="Managed", slug="managed")
+    other_company = Company.objects.create(name="Other", slug="other")
+    manager = CompanyMembership.objects.create(
+        user=user,
+        company=managed_company,
+        role=CompanyMembership.Role.MANAGER,
+    )
+    CompanyMembership.objects.create(
+        user=user,
+        company=other_company,
+        role=CompanyMembership.Role.EMPLOYEE,
+    )
+    employee = membership(email="cross-role-employee@example.com", company=managed_company)
+    record = WorkInOfficeRecord.objects.create(
+        employee=employee,
+        work_date=timezone.localdate(),
+        location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
+        review_state=WorkInOfficeRecord.ReviewState.PENDING,
+        approval_owner_snapshot={"membership_id": manager.pk},
+        submitted_at=timezone.now(),
+    )
+    client.force_login(user)
+
+    assert client.get("/api/v1/approvals/").status_code == 403
+    response = client.post(
+        f"/api/v1/approvals/{record.pk}/approve/",
+        {"version": record.version},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    record.refresh_from_db()
+    assert record.review_state == WorkInOfficeRecord.ReviewState.PENDING
+
+
+def test_approval_openapi_requires_decision_request_body():
+    schema = yaml.safe_load((Path(__file__).parents[1] / "schema.yml").read_text())
+    operation = schema["paths"]["/api/v1/approvals/{id}/{action}/"]["post"]
+
+    assert operation["requestBody"]["required"] is True
+    request_schema = operation["requestBody"]["content"]["application/json"]["schema"]
+    if "$ref" in request_schema:
+        request_schema = schema["components"]["schemas"][request_schema["$ref"].rsplit("/", 1)[1]]
+    assert "version" in request_schema["required"]
+
+
+def test_approval_revalidates_stale_manager_scope_inside_mutation(db):
+    company = Company.objects.create(name="Scope Recheck", slug="scope-recheck")
+    employee = membership(email="scope-employee@example.com", company=company)
+    manager = membership(
+        email="scope-manager@example.com",
+        company=company,
+        role=CompanyMembership.Role.MANAGER,
+    )
+    ManagerAssignment.objects.create(
+        manager=manager,
+        employee=employee,
+        effective_from=timezone.localdate(),
+    )
+    record = save_record(
+        employee=employee,
+        work_date=timezone.localdate(),
+        location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
+    )
+    CompanyMembership.objects.filter(pk=manager.pk).update(role=CompanyMembership.Role.EMPLOYEE)
+
+    with pytest.raises(ValidationError, match="active manager"):
+        approve_record(manager=manager, record_id=record.pk, version=record.version)
+
+    record.refresh_from_db()
+    assert record.review_state == WorkInOfficeRecord.ReviewState.PENDING
 
 
 def active_period(company, today):
@@ -58,33 +162,53 @@ def active_period(company, today):
     )
 
 
-def test_privileged_submission_self_approves_and_can_be_undone(client, db):
+@pytest.mark.parametrize(
+    ("role", "expected_state"),
+    [
+        (CompanyMembership.Role.MANAGER, WorkInOfficeRecord.ReviewState.PENDING),
+        (
+            CompanyMembership.Role.HR_ADMIN,
+            WorkInOfficeRecord.ReviewState.PENDING_ASSIGNMENT,
+        ),
+    ],
+)
+def test_privileged_submission_still_requires_manager_approval(client, db, role, expected_state):
     company = Company.objects.create(name="Yawn", slug="yawn")
-    manager = membership(
-        email="manager@example.com", company=company, role=CompanyMembership.Role.MANAGER
+    employee = membership(
+        email="privileged@example.com",
+        company=company,
+        role=role,
     )
+    if role == CompanyMembership.Role.MANAGER:
+        supervisor = membership(
+            email="supervisor@example.com",
+            company=company,
+            role=CompanyMembership.Role.MANAGER,
+        )
+        ManagerAssignment.objects.create(
+            manager=supervisor,
+            employee=employee,
+            effective_from=timezone.localdate(),
+        )
     record = save_record(
-        employee=manager,
+        employee=employee,
         work_date=timezone.localdate(),
         location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
-        actor=manager.user,
+        actor=employee.user,
     )
 
-    assert record.review_state == WorkInOfficeRecord.ReviewState.APPROVED
-    assert record.approval_method == WorkInOfficeRecord.ApprovalMethod.SELF_APPROVED
-    assert record.approved_by_snapshot["membership_id"] == manager.pk
+    assert record.review_state == expected_state
+    assert record.approval_method is None
+    assert record.approved_by_snapshot == {}
 
-    client.force_login(manager.user)
+    client.force_login(employee.user)
     response = client.post(
         f"/api/v1/work-in-office/{record.pk}/undo-self-approval/",
         {"version": record.version},
         content_type="application/json",
     )
 
-    assert response.status_code == 200
-    assert response.json()["review_state"] == WorkInOfficeRecord.ReviewState.DRAFT
-    assert response.json()["approval_method"] is None
-    assert AuditEvent.objects.filter(event_type="work_logs.self_approval_undone").exists()
+    assert response.status_code == 400
 
 
 def test_employee_submission_stays_pending_and_self_undo_is_hidden(client, db):
@@ -142,6 +266,19 @@ def test_manager_queue_decision_is_assignment_scoped(client, db):
     assert queue.json()[0]["employee_name"] == "Ada Lovelace"
     assert queue.json()[0]["employee_email"] == "employee@example.com"
     assert queue.json()[0]["base_location_name"] == "Headquarters"
+    missing_version = client.post(
+        f"/api/v1/approvals/{record.pk}/approve/",
+        {},
+        content_type="application/json",
+    )
+    blank_reason = client.post(
+        f"/api/v1/approvals/{record.pk}/reject/",
+        {"version": record.version, "reason": "   "},
+        content_type="application/json",
+    )
+    assert missing_version.status_code == 409
+    assert "Version is required" in missing_version.json()["detail"]
+    assert blank_reason.status_code == 400
     approved = client.post(
         f"/api/v1/approvals/{record.pk}/approve/",
         {"version": record.version},
@@ -266,6 +403,17 @@ def test_approval_queues_paginate_at_fifty_and_reject_invalid_page(client, db):
     assert invalid_assignment_page.status_code == 400
     assert invalid_assignment_page.json()["detail"] == "page must be a positive integer."
 
+    WorkInOfficeRecord.objects.filter(
+        pk__in=[record.pk for record in manager_records[:10]]
+    ).delete()
+    first_ownership_page = client.get("/api/v1/approvals/ownership/")
+    final_full_ownership_page = client.get("/api/v1/approvals/ownership/?page=2")
+
+    assert len(first_ownership_page.json()) == 50
+    assert first_ownership_page.headers["X-Has-Next"] == "true"
+    assert len(final_full_ownership_page.json()) == 50
+    assert final_full_ownership_page.headers["X-Has-Next"] == "false"
+
 
 def test_target_size_approval_queues_do_not_add_per_row_queries(client, db):
     company = Company.objects.create(name="Yawn", slug="yawn")
@@ -342,13 +490,14 @@ def test_approval_undo_is_server_timed_and_appends_reversal_history(client, db):
 
     assert undone.status_code == 200
     assert undone.json()["review_state"] == WorkInOfficeRecord.ReviewState.PENDING
+    record.refresh_from_db()
+    assert record.approved_by_snapshot == {}
     assert AuditEvent.objects.filter(
         event_type="work_logs.approval_undone",
         target_type="work_logs.WorkInOfficeRecord",
         target_id=str(record.pk),
     ).exists()
 
-    record.refresh_from_db()
     approved_again = client.post(
         f"/api/v1/approvals/{record.pk}/approve/",
         {"version": record.version},
@@ -377,6 +526,118 @@ def test_approval_undo_is_server_timed_and_appends_reversal_history(client, db):
     )
 
 
+def test_final_fiscal_period_blocks_every_wio_and_approval_mutation(db):
+    company = Company.objects.create(name="Frozen", slug="frozen")
+    manager = membership(
+        email="frozen-manager@example.com",
+        company=company,
+        role=CompanyMembership.Role.MANAGER,
+    )
+    hr = membership(
+        email="frozen-hr@example.com",
+        company=company,
+        role=CompanyMembership.Role.HR_ADMIN,
+    )
+    employees = [
+        membership(email=f"frozen-{index}@example.com", company=company) for index in range(5)
+    ]
+    start = date(2026, 1, 1)
+    FiscalPeriod.objects.create(
+        company=company,
+        name="Frozen period",
+        start_date=start,
+        end_date=start + timedelta(days=10),
+        reconciliation_cutoff=timezone.now() - timedelta(days=1),
+        state=FiscalPeriod.State.FINAL,
+    )
+    for employee in employees:
+        ManagerAssignment.objects.create(
+            manager=manager,
+            employee=employee,
+            effective_from=start,
+        )
+    pending_for_approve = WorkInOfficeRecord.objects.create(
+        employee=employees[0],
+        work_date=start,
+        location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
+        review_state=WorkInOfficeRecord.ReviewState.PENDING,
+        approval_owner_snapshot={"membership_id": manager.pk},
+    )
+    pending_for_reject = WorkInOfficeRecord.objects.create(
+        employee=employees[1],
+        work_date=start + timedelta(days=1),
+        location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
+        review_state=WorkInOfficeRecord.ReviewState.PENDING,
+        approval_owner_snapshot={"membership_id": manager.pk},
+    )
+    pending_assignment = WorkInOfficeRecord.objects.create(
+        employee=employees[2],
+        work_date=start + timedelta(days=2),
+        location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
+        review_state=WorkInOfficeRecord.ReviewState.PENDING_ASSIGNMENT,
+    )
+    manager_approved = WorkInOfficeRecord.objects.create(
+        employee=employees[3],
+        work_date=start + timedelta(days=3),
+        location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
+        review_state=WorkInOfficeRecord.ReviewState.APPROVED,
+        approval_method=WorkInOfficeRecord.ApprovalMethod.MANAGER_APPROVED,
+        approved_at=timezone.now(),
+        approved_by_snapshot={"membership_id": manager.pk},
+        approval_owner_snapshot={"membership_id": manager.pk},
+    )
+    self_approved = WorkInOfficeRecord.objects.create(
+        employee=employees[4],
+        work_date=start + timedelta(days=4),
+        location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
+        review_state=WorkInOfficeRecord.ReviewState.APPROVED,
+        approval_method=WorkInOfficeRecord.ApprovalMethod.SELF_APPROVED,
+        approved_at=timezone.now(),
+        approved_by_snapshot={"membership_id": employees[4].pk},
+    )
+
+    with pytest.raises(ValidationError, match="fiscal period is final"):
+        approve_record(
+            manager=manager,
+            record_id=pending_for_approve.pk,
+            version=pending_for_approve.version,
+        )
+    with pytest.raises(ValidationError, match="fiscal period is final"):
+        reject_scoped_record(
+            manager=manager,
+            record_id=pending_for_reject.pk,
+            version=pending_for_reject.version,
+            reason="No evidence",
+        )
+    with pytest.raises(ValidationError, match="fiscal period is final"):
+        assign_pending_record(
+            hr=hr,
+            record_id=pending_assignment.pk,
+            manager_id=manager.pk,
+            version=pending_assignment.version,
+            reason="Assign owner",
+        )
+    with pytest.raises(ValidationError, match="fiscal period is final"):
+        undo_approval(
+            manager=manager,
+            record_id=manager_approved.pk,
+            version=manager_approved.version,
+        )
+    with pytest.raises(ValidationError, match="fiscal period is final"):
+        undo_self_approval(
+            employee=employees[4],
+            record_id=self_approved.pk,
+            version=self_approved.version,
+            actor=employees[4].user,
+        )
+    with pytest.raises(ValidationError, match="fiscal period is final"):
+        reverse_approved_record(
+            record=manager_approved,
+            actor=hr.user,
+            reason="Frozen correction",
+        )
+
+
 def test_hr_resolves_pending_assignment_with_audited_explicit_owner(client, db):
     company = Company.objects.create(name="Yawn", slug="yawn")
     employee = membership(email="employee@example.com", company=company)
@@ -403,6 +664,18 @@ def test_hr_resolves_pending_assignment_with_audited_explicit_owner(client, db):
             "email": manager.user.email,
         }
     ]
+    rejected_hr_owner = client.post(
+        f"/api/v1/approvals/{record.pk}/assign/",
+        {
+            "version": record.version,
+            "manager_membership_id": hr.pk,
+            "reason": "HR must not become the hidden approval owner",
+        },
+        content_type="application/json",
+    )
+    assert rejected_hr_owner.status_code == 400
+    record.refresh_from_db()
+    assert record.review_state == WorkInOfficeRecord.ReviewState.PENDING_ASSIGNMENT
     assigned = client.post(
         f"/api/v1/approvals/{record.pk}/assign/",
         {
@@ -416,6 +689,112 @@ def test_hr_resolves_pending_assignment_with_audited_explicit_owner(client, db):
     assert assigned.json()["review_state"] == WorkInOfficeRecord.ReviewState.PENDING
     client.force_login(manager.user)
     assert [item["id"] for item in client.get("/api/v1/approvals/").json()] == [record.pk]
+
+
+def test_hr_reassigns_owned_pending_claim_with_reason_and_history(client, db):
+    company = Company.objects.create(name="Yawn", slug="yawn")
+    employee = membership(email="employee@example.com", company=company)
+    first_manager = membership(
+        email="first-manager@example.com",
+        company=company,
+        role=CompanyMembership.Role.MANAGER,
+    )
+    next_manager = membership(
+        email="next-manager@example.com",
+        company=company,
+        role=CompanyMembership.Role.MANAGER,
+    )
+    hr = membership(email="hr@example.com", company=company, role=CompanyMembership.Role.HR_ADMIN)
+    record = WorkInOfficeRecord.objects.create(
+        employee=employee,
+        work_date=timezone.localdate(),
+        location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
+        review_state=WorkInOfficeRecord.ReviewState.PENDING,
+        approval_owner_snapshot={"membership_id": first_manager.pk},
+        submitted_at=timezone.now(),
+    )
+    client.force_login(hr.user)
+
+    ownership = client.get("/api/v1/approvals/ownership/")
+    reassigned = client.post(
+        f"/api/v1/approvals/{record.pk}/assign/",
+        {
+            "version": record.version,
+            "manager_membership_id": next_manager.pk,
+            "reason": "Manager leave coverage",
+        },
+        content_type="application/json",
+    )
+
+    assert ownership.status_code == 200
+    assert [item["id"] for item in ownership.json()] == [record.pk]
+    assert reassigned.status_code == 200
+    record.refresh_from_db()
+    assert record.review_state == WorkInOfficeRecord.ReviewState.PENDING
+    assert record.approval_owner_snapshot["membership_id"] == next_manager.pk
+    event = AuditEvent.objects.get(event_type="work_logs.record_pending_reassigned")
+    assert event.metadata["previous_manager_membership_id"] == first_manager.pk
+    assert event.metadata["assigned_manager_membership_id"] == next_manager.pk
+    assert event.metadata["reason"] == "Manager leave coverage"
+
+    client.force_login(first_manager.user)
+    assert client.get("/api/v1/approvals/").json() == []
+    client.force_login(next_manager.user)
+    assert [item["id"] for item in client.get("/api/v1/approvals/").json()] == [record.pk]
+
+
+def test_employee_and_manager_audit_timelines_are_bounded_and_scoped(client, db):
+    company = Company.objects.create(name="Yawn", slug="yawn")
+    employee = membership(email="employee@example.com", company=company)
+    manager = membership(
+        email="manager@example.com", company=company, role=CompanyMembership.Role.MANAGER
+    )
+    outsider = membership(
+        email="outsider@example.com", company=company, role=CompanyMembership.Role.MANAGER
+    )
+    record = WorkInOfficeRecord.objects.create(
+        employee=employee,
+        work_date=timezone.localdate(),
+        location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
+        review_state=WorkInOfficeRecord.ReviewState.PENDING,
+        approval_owner_snapshot={"membership_id": manager.pk},
+        submitted_at=timezone.now(),
+    )
+    AuditEvent.objects.bulk_create(
+        [
+            AuditEvent(
+                event_type="work_logs.record_submitted",
+                target_type="work_logs.WorkInOfficeRecord",
+                target_id=str(record.pk),
+                metadata={
+                    "actor_role": "employee",
+                    "revision": index,
+                    "private_snapshot": f"SECRET-{index}",
+                },
+            )
+            for index in range(51)
+        ]
+    )
+
+    client.force_login(manager.user)
+    first = client.get(f"/api/v1/approvals/{record.pk}/timeline/")
+    second = client.get(f"/api/v1/approvals/{record.pk}/timeline/?page=2")
+    assert first.status_code == 200
+    assert len(first.json()["results"]) == 50
+    assert first.json()["next_page"] == 2
+    assert len(second.json()["results"]) == 1
+    assert "SECRET" not in str(first.json())
+
+    client.force_login(outsider.user)
+    assert client.get(f"/api/v1/approvals/{record.pk}/timeline/").status_code == 404
+
+    client.force_login(employee.user)
+    detail = client.get(f"/api/v1/work-in-office/{record.pk}/")
+    older = client.get(f"/api/v1/work-in-office/{record.pk}/timeline/?page=2")
+    assert detail.status_code == 200
+    assert len(detail.json()["audit_timeline"]) == 50
+    assert detail.json()["audit_timeline_next_page"] == 2
+    assert len(older.json()["results"]) == 1
 
 
 def test_phase3_api_role_company_matrix_keeps_private_resources_scoped(client, db):
@@ -492,7 +871,10 @@ def test_phase3_api_role_company_matrix_keeps_private_resources_scoped(client, d
         "/api/v1/reports/",
         "/api/v1/reports/csv/",
         "/api/v1/approvals/",
+        f"/api/v1/approvals/{pending.pk}/timeline/",
+        "/api/v1/approvals/ownership/",
         "/api/v1/approvals/pending-assignment/",
+        f"/api/v1/work-in-office/{pending.pk}/timeline/",
     ):
         client.logout()
         assert client.get(path).status_code in {401, 403}
@@ -508,17 +890,23 @@ def test_phase3_api_role_company_matrix_keeps_private_resources_scoped(client, d
     assert "PLANNER_MATRIX_SECRET" in str(client.get("/api/v1/planner/").json())
     assert "PLANNER_MATRIX_SECRET" not in client.get("/api/v1/reports/csv/").content.decode("utf-8")
     assert client.get("/api/v1/approvals/").status_code == 403
+    assert client.get(f"/api/v1/approvals/{pending.pk}/timeline/").status_code == 403
+    assert client.get("/api/v1/approvals/ownership/").status_code == 403
     assert client.get("/api/v1/approvals/pending-assignment/").status_code == 403
+    assert client.get(f"/api/v1/work-in-office/{pending.pk}/timeline/").status_code == 200
 
     client.force_login(assigned_manager.user)
     approval_queue = client.get("/api/v1/approvals/")
     assert approval_queue.status_code == 200
     assert [item["id"] for item in approval_queue.json()] == [pending.pk]
+    assert client.get(f"/api/v1/approvals/{pending.pk}/timeline/").status_code == 200
+    assert client.get("/api/v1/approvals/ownership/").status_code == 403
     assert client.get(f"/api/v1/work-in-office/{pending.pk}/").status_code == 404
     assert "PLANNER_MATRIX_SECRET" not in str(client.get("/api/v1/planner/").json())
 
     client.force_login(unassigned_manager.user)
     assert client.get("/api/v1/approvals/").json() == []
+    assert client.get(f"/api/v1/approvals/{pending.pk}/timeline/").status_code == 404
     assert (
         client.post(
             f"/api/v1/approvals/{pending.pk}/approve/",
@@ -533,10 +921,15 @@ def test_phase3_api_role_company_matrix_keeps_private_resources_scoped(client, d
 
     client.force_login(other_manager.user)
     assert client.get("/api/v1/approvals/").json() == []
+    assert client.get(f"/api/v1/approvals/{pending.pk}/timeline/").status_code == 404
     assert client.get(f"/api/v1/work-in-office/{pending.pk}/").status_code == 404
     assert "PLANNER_MATRIX_SECRET" not in str(client.get("/api/v1/planner/").json())
 
     client.force_login(hr.user)
+    assert {item["id"] for item in client.get("/api/v1/approvals/ownership/").json()} == {
+        pending.pk,
+        pending_assignment.pk,
+    }
     assert [item["id"] for item in client.get("/api/v1/approvals/pending-assignment/").json()] == [
         pending_assignment.pk
     ]
@@ -544,6 +937,7 @@ def test_phase3_api_role_company_matrix_keeps_private_resources_scoped(client, d
     assert {item["id"] for item in assignees} == {assigned_manager.pk, unassigned_manager.pk}
 
     client.force_login(other_hr.user)
+    assert client.get("/api/v1/approvals/ownership/").json() == []
     assert client.get("/api/v1/approvals/pending-assignment/").json() == []
     assert (
         client.post(
@@ -1478,7 +1872,7 @@ def test_wio_and_planner_mutations_reject_missing_version(client, db):
     client.force_login(employee.user)
     created = client.post(
         "/api/v1/work-in-office/",
-        {"work_date": today.isoformat()},
+        {"work_date": today.isoformat(), "save_as_draft": True},
         content_type="application/json",
     ).json()
 
@@ -2420,6 +2814,31 @@ def test_finalization_runs_registered_steps_once(db):
     assert calls == ["first"]
     run_finalization(period.pk, {"first": lambda _: calls.append("again")})
     assert calls == ["first"]
+
+
+def test_finalization_locks_company_before_period(db, monkeypatch):
+    company = Company.objects.create(name="Finalization Lock Co", slug="finalization-lock")
+    today = timezone.localdate()
+    period = FiscalPeriod.objects.create(
+        company=company,
+        name="Lock order",
+        start_date=today - timedelta(days=60),
+        end_date=today - timedelta(days=31),
+        reconciliation_cutoff=timezone.now() - timedelta(seconds=1),
+        state=FiscalPeriod.State.RECONCILIATION,
+    )
+    locked_models = []
+    original_select_for_update = QuerySet.select_for_update
+
+    def track_select_for_update(queryset, *args, **kwargs):
+        locked_models.append(queryset.model)
+        return original_select_for_update(queryset, *args, **kwargs)
+
+    monkeypatch.setattr(QuerySet, "select_for_update", track_select_for_update)
+
+    run_finalization(period.pk, {})
+
+    assert locked_models[:2] == [Company, FiscalPeriod]
 
 
 def test_finalization_failure_retries_expiration_freeze_and_purge_without_duplicates(db, caplog):

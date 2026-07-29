@@ -60,6 +60,25 @@ describe("frontend error policy", () => {
     expect(captureException).not.toHaveBeenCalled();
   });
 
+  it("keeps only allowlisted field names and discards raw validation values", async () => {
+    const error = await apiErrorFromResponse(
+      new Response(
+        JSON.stringify({
+          work_date: ["private date detail"],
+          note: ["private note detail"],
+          unknown: ["SQL detail"],
+        }),
+        { status: 400 },
+      ),
+      "Check the form.",
+      ["work_date", "location_choice", "note"] as const,
+    );
+
+    expect(error.message).toBe("Check the form.");
+    expect(error.fieldErrors).toEqual(["work_date", "note"]);
+    expect(JSON.stringify(error)).not.toMatch(/private|SQL/);
+  });
+
   it("hides and reports unexpected exceptions", () => {
     const error = new TypeError("AbortSignal conversion failed");
 

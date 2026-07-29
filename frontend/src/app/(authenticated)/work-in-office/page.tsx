@@ -2,17 +2,17 @@
 
 import Link from "next/link";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { AppPage } from "@/features/app-shell/app-page";
-import { userFacingError } from "@/lib/errors";
+import { isAbortError, userFacingError } from "@/lib/errors";
 import {
+  getWorkInOffice,
   listWorkInOffice,
   type WorkInOfficeRecord,
 } from "@/features/work-in-office/api";
 import { formatMessage, languageFromDocument, messagesFor } from "@/lib/i18n";
 
-const attentionStates = new Set(["draft", "rejected"]);
 type WorkInOfficeCopy = ReturnType<typeof messagesFor>["workInOffice"];
 
 function reviewLabel(
@@ -51,11 +51,21 @@ function statusClass(state: WorkInOfficeRecord["review_state"]) {
         : "badge-ghost";
 }
 
+function localizedDateTime(value: string, language: string) {
+  return new Intl.DateTimeFormat(language === "vi" ? "vi-VN" : "en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
 function WorkInOfficeIndex() {
   const language = languageFromDocument();
   const copy = messagesFor(language).workInOffice;
   const [records, setRecords] = useState<WorkInOfficeRecord[]>([]);
+  const [attention, setAttention] = useState<WorkInOfficeRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [attentionError, setAttentionError] = useState<string | null>(null);
   const [location, setLocation] = useState("");
   const [review, setReview] = useState("");
   const [date, setDate] = useState("");
@@ -64,37 +74,94 @@ function WorkInOfficeIndex() {
   const [endDate, setEndDate] = useState("");
   const statusRef = useRef<HTMLDivElement>(null);
   const searchParams = useSearchParams();
+  const router = useRouter();
   const saved = searchParams.get("saved");
   useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const loaded = await listWorkInOffice(
+          "?attention=true",
+          copy.listRecordsFailed,
+          controller.signal,
+        );
+        if (!controller.signal.aborted) setAttention(loaded);
+      } catch (reason) {
+        if (!isAbortError(reason)) {
+          setAttentionError(userFacingError(reason, copy.listRecordsFailed));
+        }
+      }
+    })();
+    return () => controller.abort();
+  }, [copy.listRecordsFailed]);
+
+  useEffect(() => {
+    const controller = new AbortController();
     const query = new URLSearchParams();
     if (location) query.set("location_choice", location);
     if (review) query.set("review_state", review);
     if (date) query.set("work_date", date);
     if (month) query.set("month", month);
-    if (startDate) query.set("start_date", startDate);
-    if (endDate) query.set("end_date", endDate);
+    if (startDate && endDate) {
+      query.set("start_date", startDate);
+      query.set("end_date", endDate);
+    }
     const suffix = query.size ? `?${query}` : "";
-    void listWorkInOffice(suffix, copy.listRecordsFailed)
-      .then(setRecords)
-      .catch((reason) =>
-        setError(userFacingError(reason, copy.listRecordsFailed)),
-      );
+    void (async () => {
+      await Promise.resolve();
+      if (controller.signal.aborted) return;
+      setError(null);
+      setIsLoading(true);
+      try {
+        let loaded = await listWorkInOffice(
+          suffix,
+          copy.listRecordsFailed,
+          controller.signal,
+        );
+        if (saved && !loaded.some((record) => String(record.id) === saved)) {
+          try {
+            const affected = await getWorkInOffice(
+              saved,
+              copy.loadRecordFailed,
+              controller.signal,
+            );
+            loaded = [affected, ...loaded];
+          } catch (reason) {
+            if (isAbortError(reason)) throw reason;
+            setError(userFacingError(reason, copy.loadRecordFailed));
+          }
+        }
+        if (!controller.signal.aborted) setRecords(loaded);
+      } catch (reason) {
+        if (!isAbortError(reason)) {
+          setError(userFacingError(reason, copy.listRecordsFailed));
+        }
+      } finally {
+        if (!controller.signal.aborted) setIsLoading(false);
+      }
+    })();
+    return () => controller.abort();
   }, [
     copy.listRecordsFailed,
+    copy.loadRecordFailed,
     date,
     endDate,
     location,
     month,
     review,
+    saved,
     startDate,
   ]);
-  const attention = records.filter((record) =>
-    attentionStates.has(record.review_state),
-  );
   const savedRecord = records.find((record) => String(record.id) === saved);
   useEffect(() => {
-    if (savedRecord) statusRef.current?.focus();
-  }, [savedRecord]);
+    if (!savedRecord) return;
+    statusRef.current?.focus();
+    const timer = window.setTimeout(
+      () => router.replace("/work-in-office", { scroll: false }),
+      3000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [router, savedRecord]);
   const outcome =
     savedRecord?.review_state === "draft"
       ? copy.draftSaved
@@ -118,7 +185,7 @@ function WorkInOfficeIndex() {
             {copy.logWorkLocation}
           </Link>
         </header>
-        {saved ? (
+        {savedRecord ? (
           <div
             className="alert alert-success"
             role="status"
@@ -131,6 +198,11 @@ function WorkInOfficeIndex() {
         {error ? (
           <div className="alert alert-error" role="alert">
             <span>{error}</span>
+          </div>
+        ) : null}
+        {attentionError ? (
+          <div className="alert alert-error" role="alert">
+            <span>{attentionError}</span>
           </div>
         ) : null}
         {attention.length ? (
@@ -164,7 +236,12 @@ function WorkInOfficeIndex() {
                   <span className="fieldset-legend">{copy.month}</span>
                   <input
                     className="input input-sm"
-                    onChange={(event) => setMonth(event.target.value)}
+                    onChange={(event) => {
+                      setMonth(event.target.value);
+                      setDate("");
+                      setStartDate("");
+                      setEndDate("");
+                    }}
                     type="month"
                     value={month}
                   />
@@ -173,7 +250,12 @@ function WorkInOfficeIndex() {
                   <span className="fieldset-legend">{copy.date}</span>
                   <input
                     className="input input-sm"
-                    onChange={(event) => setDate(event.target.value)}
+                    onChange={(event) => {
+                      setDate(event.target.value);
+                      setMonth("");
+                      setStartDate("");
+                      setEndDate("");
+                    }}
                     type="date"
                     value={date}
                   />
@@ -182,7 +264,11 @@ function WorkInOfficeIndex() {
                   <span className="fieldset-legend">{copy.from}</span>
                   <input
                     className="input input-sm"
-                    onChange={(event) => setStartDate(event.target.value)}
+                    onChange={(event) => {
+                      setStartDate(event.target.value);
+                      setMonth("");
+                      setDate("");
+                    }}
                     type="date"
                     value={startDate}
                   />
@@ -191,7 +277,11 @@ function WorkInOfficeIndex() {
                   <span className="fieldset-legend">{copy.to}</span>
                   <input
                     className="input input-sm"
-                    onChange={(event) => setEndDate(event.target.value)}
+                    onChange={(event) => {
+                      setEndDate(event.target.value);
+                      setMonth("");
+                      setDate("");
+                    }}
                     type="date"
                     value={endDate}
                   />
@@ -226,11 +316,19 @@ function WorkInOfficeIndex() {
                     <option value="not_required">
                       {copy.stateNotRequired}
                     </option>
+                    <option value="expired_pending">
+                      {copy.stateExpiredPending}
+                    </option>
                   </select>
                 </label>
               </fieldset>
             </div>
-            {records.length ? (
+            {isLoading ? (
+              <div className="grid min-h-40 place-items-center" role="status">
+                <span className="loading loading-spinner" aria-hidden="true" />
+                <span className="sr-only">{copy.loadingRecords}</span>
+              </div>
+            ) : records.length ? (
               <div className="overflow-x-auto">
                 <table className="table">
                   <thead>
@@ -257,14 +355,16 @@ function WorkInOfficeIndex() {
                         <td>{record.work_date}</td>
                         <td>{locationLabel(record.location_choice, copy)}</td>
                         <td>
-                          <span
-                            aria-label={
-                              record.note ? copy.includesNote : copy.noNote
-                            }
-                          >
-                            {record.note ? copy.notePrefix : ""}
-                            {new Date(record.updated_at).toLocaleString()}
-                          </span>
+                          {record.note ? (
+                            <span aria-label={copy.includesNote}>
+                              {copy.notePrefix}
+                            </span>
+                          ) : (
+                            <span className="sr-only">{copy.noNote} </span>
+                          )}
+                          <time dateTime={record.updated_at}>
+                            {localizedDateTime(record.updated_at, language)}
+                          </time>
                         </td>
                         <td>
                           <span

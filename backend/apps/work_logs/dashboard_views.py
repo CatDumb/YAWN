@@ -190,7 +190,7 @@ class DashboardRatioView(APIView):
                         Decimal("0.01")
                     )
                 ),
-                "self_approval_applies": employee.role in {"manager", "hr_admin"},
+                "self_approval_applies": False,
                 "remaining_eligible_days": remaining,
                 "pending_count": report["pending_count"],
                 "pending_assignment_count": report["pending_assignment_count"],

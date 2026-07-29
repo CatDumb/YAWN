@@ -18,6 +18,12 @@ class AuditEvent(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["target_type", "target_id", "-created_at", "-id"],
+                name="audit_target_recent_idx",
+            )
+        ]
 
     def __str__(self):
         return self.event_type

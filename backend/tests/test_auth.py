@@ -14,7 +14,13 @@ from django.db import transaction
 from django.test import Client
 from django.utils import timezone
 
-from apps.accounts.models import Company, CompanyMembership, EmailOTPChallenge, User
+from apps.accounts.models import (
+    Company,
+    CompanyMembership,
+    EmailOTPChallenge,
+    User,
+    lock_single_active_company,
+)
 from apps.accounts.permissions import IsHRAdmin, IsManagerOrHRAdmin
 from apps.accounts.services import send_approval_email, send_otp_email
 from apps.accounts.views import _lock_rate_limits
@@ -131,6 +137,59 @@ def test_authenticated_user_requires_active_membership(client):
     response = client.get("/api/v1/users/me/")
 
     assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_current_user_exposes_only_active_company_membership(client):
+    user = User.objects.create_user(email="membership-history@example.com")
+    historical_company = Company.objects.create(
+        name="Historical Company",
+        slug="historical-company",
+        is_active=False,
+    )
+    CompanyMembership.objects.create(
+        user=user,
+        company=historical_company,
+        role=CompanyMembership.Role.HR_ADMIN,
+        is_active=False,
+    )
+    active_company = Company.objects.create(name="Current Company", slug="current-company")
+    active_membership = CompanyMembership.objects.create(
+        user=user,
+        company=active_company,
+        role=CompanyMembership.Role.MANAGER,
+    )
+    client.force_login(user)
+
+    response = client.get("/api/v1/users/me/")
+
+    assert response.status_code == 200
+    assert response.json()["memberships"] == [
+        {
+            "company_id": active_company.pk,
+            "company": active_company.name,
+            "role": active_membership.role,
+        }
+    ]
+
+
+@pytest.mark.django_db
+def test_current_user_fails_closed_for_ambiguous_active_company_scope(client):
+    user = User.objects.create_user(email="ambiguous-scope@example.com")
+    first = Company.objects.create(name="First Company", slug="first-company")
+    second = Company.objects.create(name="Second Company", slug="second-company")
+    CompanyMembership.objects.create(user=user, company=first)
+    CompanyMembership.objects.create(user=user, company=second)
+    client.force_login(user)
+
+    response = client.get("/api/v1/users/me/")
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": (
+            "Active company scope is missing or ambiguous. Contact HR/admin to repair membership."
+        )
+    }
 
 
 @pytest.mark.django_db
@@ -483,3 +542,14 @@ def test_rate_locks_use_postgresql_transaction_advisory_locks(monkeypatch):
     assert all(
         call.args[0] == "SELECT pg_advisory_xact_lock(%s)" for call in cursor.execute.call_args_list
     )
+
+
+def test_single_active_company_uses_postgresql_transaction_advisory_lock():
+    connection = MagicMock()
+    connection.vendor = "postgresql"
+    cursor = connection.cursor.return_value.__enter__.return_value
+
+    lock_single_active_company(connection)
+
+    cursor.execute.assert_called_once()
+    assert cursor.execute.call_args.args[0] == "SELECT pg_advisory_xact_lock(%s)"

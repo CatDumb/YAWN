@@ -245,7 +245,10 @@ class CompanyMembershipAdmin(admin.ModelAdmin):
     list_filter = ["company", "role", "is_active"]
     search_fields = ["user__email", "company__name", "company__slug"]
     readonly_fields = ["joined_at"]
-    actions = ["reactivate_selected_memberships"]
+    actions = [
+        "deactivate_selected_memberships",
+        "reactivate_selected_memberships",
+    ]
 
     def has_module_permission(self, request):
         return _is_identity_admin(request.user)
@@ -274,13 +277,57 @@ class CompanyMembershipAdmin(admin.ModelAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         if request.user.is_superuser:
-            return self.readonly_fields
+            return [*self.readonly_fields, "is_active"]
         return [*self.readonly_fields, "user", "company", "role", "is_active"]
+
+    @admin.action(description="Deactivate selected memberships")
+    @transaction.atomic
+    def deactivate_selected_memberships(self, request, queryset):
+        membership_ids = list(
+            queryset.filter(is_active=True).exclude(user=request.user).values_list("pk", flat=True)
+        )
+        user_ids = (
+            CompanyMembership.objects.filter(pk__in=membership_ids)
+            .order_by("user_id")
+            .values_list("user_id", flat=True)
+            .distinct()
+        )
+        list(User.objects.select_for_update().filter(pk__in=user_ids).order_by("pk"))
+        memberships = (
+            CompanyMembership.objects.select_for_update()
+            .filter(pk__in=membership_ids, is_active=True)
+            .order_by("user_id", "pk")
+        )
+        for membership in memberships:
+            membership.is_active = False
+            membership.save(update_fields=["is_active"])
+            AuditEvent.objects.create(
+                actor=request.user,
+                event_type="accounts.membership_deactivated",
+                target_type="accounts.CompanyMembership",
+                target_id=str(membership.pk),
+                metadata={
+                    "company_id": membership.company_id,
+                    "user_id": membership.user_id,
+                },
+            )
 
     @admin.action(description="Reactivate selected memberships")
     @transaction.atomic
     def reactivate_selected_memberships(self, request, queryset):
-        memberships = queryset.select_for_update().filter(is_active=False)
+        membership_ids = list(queryset.filter(is_active=False).values_list("pk", flat=True))
+        user_ids = (
+            CompanyMembership.objects.filter(pk__in=membership_ids)
+            .order_by("user_id")
+            .values_list("user_id", flat=True)
+            .distinct()
+        )
+        list(User.objects.select_for_update().filter(pk__in=user_ids).order_by("pk"))
+        memberships = (
+            CompanyMembership.objects.select_for_update()
+            .filter(pk__in=membership_ids, is_active=False)
+            .order_by("user_id", "pk")
+        )
         for membership in memberships:
             membership.is_active = True
             membership.save(update_fields=["is_active"])
