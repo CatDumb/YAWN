@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -679,6 +680,97 @@ describe("Phase 3 page contracts", () => {
     );
   });
 
+  it("initializes dashboard month from the company date near Ho Chi Minh midnight", async () => {
+    const browserUtc = vi
+      .spyOn(Date.prototype, "toISOString")
+      .mockReturnValue("2026-07-31T17:30:00.000Z");
+    apiFetch.mockImplementation((url: string) => {
+      if (url === "/api/v1/work-in-office/meta/")
+        return Promise.resolve(
+          response({
+            company_date: "2026-08-01",
+            timezone: "Asia/Ho_Chi_Minh",
+            fiscal_period: null,
+          }),
+        );
+      return Promise.resolve(responseFor(url));
+    });
+
+    render(<DashboardPage />);
+
+    await waitFor(() =>
+      expect(
+        apiFetch.mock.calls.some(
+          ([url]) => url === "/api/v1/dashboard/heatmap/?year=2026&month=08",
+        ),
+      ).toBe(true),
+    );
+    expect(
+      apiFetch.mock.calls.some(([url]) => String(url).includes("month=07")),
+    ).toBe(false);
+    expect(screen.getByLabelText("Dashboard month")).toHaveValue("2026-08");
+    browserUtc.mockRestore();
+  });
+
+  it("shows dashboard plan coverage separately from verified credit", async () => {
+    render(<DashboardPage />);
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith(
+        "/api/v1/planner/projection/",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
+    const verifiedHeading = await screen.findByRole("heading", {
+      name: "Verified fiscal progress",
+    });
+    const coverageHeading = await screen.findByRole("heading", {
+      name: "Plan coverage",
+    });
+    const verifiedSection = verifiedHeading.closest("section");
+    const coverageSection = coverageHeading.closest("section");
+
+    expect(coverageSection).not.toBe(verifiedSection);
+    expect(coverageSection).toHaveTextContent("Firm minimum2.00");
+    expect(coverageSection).toHaveTextContent("Flexible maximum3.00");
+    expect(coverageSection).toHaveTextContent("Raw expected fraction10.00");
+    expect(coverageSection).toHaveTextContent(
+      "Private intentions show possible coverage only. They never add verified credit or predict approval.",
+    );
+    expect(verifiedSection).not.toHaveTextContent("3.00");
+  });
+
+  it("keeps verified credit visible when dashboard plan coverage fails and retries locally", async () => {
+    let projectionOffline = true;
+    apiFetch.mockImplementation((url: string) => {
+      if (url === "/api/v1/planner/projection/" && projectionOffline) {
+        return Promise.resolve(response({ detail: "Projection offline" }, 503));
+      }
+      return Promise.resolve(responseFor(url));
+    });
+
+    render(<DashboardPage />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Verified fiscal progress" }),
+    ).toBeInTheDocument();
+    expect(await screen.findAllByText("111.12%")).not.toHaveLength(0);
+    const projectionMessage = await screen.findByText("Module unavailable.");
+    const projectionAlert = projectionMessage.closest('[role="alert"]');
+    projectionOffline = false;
+
+    fireEvent.click(
+      within(projectionAlert as HTMLElement).getByRole("button", {
+        name: "Retry",
+      }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Plan coverage" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("111.12%")).not.toHaveLength(0);
+  });
+
   it("retries each dashboard request without passing click events as signals", async () => {
     const failedPaths = new Set([
       "/api/v1/dashboard/today/",
@@ -702,10 +794,10 @@ describe("Phase 3 page contracts", () => {
 
     render(<DashboardPage />);
 
-    const retryButtons = await screen.findAllByRole("button", {
-      name: "Retry",
-    });
-    expect(retryButtons).toHaveLength(5);
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(5),
+    );
+    const retryButtons = screen.getAllByRole("button", { name: "Retry" });
     retryButtons.forEach((button) => fireEvent.click(button));
 
     await waitFor(() =>
@@ -728,7 +820,7 @@ describe("Phase 3 page contracts", () => {
     render(<DashboardPage />);
 
     await screen.findAllByText("111.12%");
-    const heatmap = screen.getByLabelText(
+    const heatmap = await screen.findByLabelText(
       "Bản đồ nhiệt làm việc tại văn phòng theo tháng",
     );
     expect(
@@ -758,6 +850,7 @@ describe("Phase 3 page contracts", () => {
     render(<DashboardPage />);
 
     expect(await screen.findAllByText("111.12%")).not.toHaveLength(0);
+    await screen.findByLabelText("Monthly work-in-office heatmap");
     const stableCalls = apiFetch.mock.calls.filter(([url]) =>
       ["/api/v1/dashboard/today/", "/api/v1/dashboard/ratio/"].includes(
         String(url),
@@ -838,6 +931,31 @@ describe("Phase 3 page contracts", () => {
       await screen.findByRole("heading", { name: "Preview" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Your upcoming intentions")).toBeInTheDocument();
+  });
+
+  it("initializes Planner dates from the company date near Ho Chi Minh midnight", async () => {
+    const browserUtc = vi
+      .spyOn(Date.prototype, "toISOString")
+      .mockReturnValue("2026-07-31T17:30:00.000Z");
+    apiFetch.mockImplementation((url: string) => {
+      if (url === "/api/v1/work-in-office/meta/")
+        return Promise.resolve(
+          response({
+            company_date: "2026-08-01",
+            timezone: "Asia/Ho_Chi_Minh",
+            fiscal_period: null,
+          }),
+        );
+      return Promise.resolve(responseFor(url));
+    });
+
+    render(<PlannerPage />);
+
+    expect(await screen.findByLabelText("Start date")).toHaveValue(
+      "2026-08-01",
+    );
+    expect(screen.getByLabelText("End date")).toHaveValue("2026-08-01");
+    browserUtc.mockRestore();
   });
 
   it("saves previews and edits or deletes a future Planner series", async () => {

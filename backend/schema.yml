@@ -26,6 +26,26 @@ paths:
                 items:
                   $ref: '#/components/schemas/ApprovalWorkInOfficeRecord'
           description: ''
+  /api/v1/approvals/{id}/:
+    get:
+      operationId: v1_approvals_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalWorkInOfficeRecordDetail'
+          description: ''
   /api/v1/approvals/{id}/{action}/:
     post:
       operationId: v1_approvals_create
@@ -503,6 +523,7 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/UserPreference'
+        required: true
       security:
       - cookieAuth: []
       responses:
@@ -1011,6 +1032,7 @@ components:
           type: integer
           maximum: 2147483647
           minimum: 0
+          readOnly: true
         approved_at:
           type: string
           format: date-time
@@ -1033,6 +1055,71 @@ components:
       - employee_name
       - id
       - note_present
+      - version
+      - work_date
+    ApprovalWorkInOfficeRecordDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        employee_name:
+          type: string
+          readOnly: true
+        employee_email:
+          type: string
+          format: email
+          readOnly: true
+        base_location_name:
+          type: string
+          readOnly: true
+          nullable: true
+        work_date:
+          type: string
+          format: date
+        location_choice:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/LocationChoiceEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        review_state:
+          $ref: '#/components/schemas/ReviewStateEnum'
+        note_present:
+          type: boolean
+          readOnly: true
+        version:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          readOnly: true
+        approved_at:
+          type: string
+          format: date-time
+          nullable: true
+        submitted_at:
+          type: string
+          format: date-time
+          nullable: true
+        rejected_at:
+          type: string
+          format: date-time
+          nullable: true
+        correction_deadline:
+          type: string
+          format: date-time
+          nullable: true
+        note:
+          type: string
+          readOnly: true
+      required:
+      - base_location_name
+      - employee_email
+      - employee_name
+      - id
+      - note
+      - note_present
+      - version
       - work_date
     AuditEvent:
       type: object
@@ -1275,7 +1362,7 @@ components:
           maxLength: 12
         week_start:
           type: integer
-          maximum: 32767
+          maximum: 1
           minimum: 0
         display_name:
           type: string
@@ -1285,6 +1372,7 @@ components:
           readOnly: true
       required:
       - version
+      - week_start
     VersionRequest:
       type: object
       properties:

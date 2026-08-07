@@ -27,6 +27,9 @@ type PlannerPreference = {
   planner_location: "" | "office" | "home";
   planner_commitment: "" | "firm" | "flexible";
 };
+type CompanyContext = {
+  company_date: string;
+};
 type Projection = {
   period_name: string;
   expected_fraction_sum: string;
@@ -64,9 +67,10 @@ export default function PlannerPage() {
     copy.saturdayShort,
     copy.sundayShort,
   ];
-  const today = new Date().toISOString().slice(0, 10);
-  const [startDate, setStartDate] = useState(today);
-  const [endDate, setEndDate] = useState(today);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [companyDateError, setCompanyDateError] = useState<string | null>(null);
+  const [companyDateLoading, setCompanyDateLoading] = useState(true);
   const [mode, setMode] = useState<"single" | "bulk" | "recurring">("single");
   const [location, setLocation] = useState("office");
   const [commitment, setCommitment] = useState("firm");
@@ -158,6 +162,30 @@ export default function PlannerPage() {
     setProjection((await response.json()) as Projection);
     setProjectionError(null);
   }, [copy.coverageFailed]);
+  const loadCompanyDate = useCallback(async () => {
+    setCompanyDateLoading(true);
+    setCompanyDateError(null);
+    try {
+      const response = await apiFetch("/api/v1/work-in-office/meta/");
+      if (!response.ok) {
+        setCompanyDateError(
+          await responseDetail(response, copy.companyDateFailed),
+        );
+        return;
+      }
+      const context = (await response.json()) as CompanyContext;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(context.company_date)) {
+        setCompanyDateError(copy.companyDateFailed);
+        return;
+      }
+      setStartDate(context.company_date);
+      setEndDate(context.company_date);
+    } catch {
+      setCompanyDateError(copy.companyDateFailed);
+    } finally {
+      setCompanyDateLoading(false);
+    }
+  }, [copy.companyDateFailed]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadIntentions(), 0);
@@ -167,6 +195,10 @@ export default function PlannerPage() {
     const timer = window.setTimeout(() => void loadProjection(), 0);
     return () => window.clearTimeout(timer);
   }, [loadProjection]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadCompanyDate(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadCompanyDate]);
   useEffect(() => {
     void apiFetch("/api/v1/preferences/").then(async (response) => {
       if (!response.ok) return;
@@ -362,28 +394,48 @@ export default function PlannerPage() {
                   ))}
                 </div>
               </fieldset>
-              <label className="fieldset">
-                <span className="fieldset-legend">{copy.startDate}</span>
-                <input
-                  className="input w-full"
-                  type="date"
-                  value={startDate}
-                  onChange={(event) => {
-                    setStartDate(event.target.value);
-                    if (mode === "single") setEndDate(event.target.value);
-                  }}
+              {companyDateLoading ? (
+                <div
+                  aria-label={copy.loadingCompanyDate}
+                  className="skeleton h-20 w-full sm:col-span-2"
                 />
-              </label>
-              <label className="fieldset">
-                <span className="fieldset-legend">{copy.endDate}</span>
-                <input
-                  className="input w-full"
-                  disabled={mode === "single"}
-                  type="date"
-                  value={endDate}
-                  onChange={(event) => setEndDate(event.target.value)}
-                />
-              </label>
+              ) : companyDateError ? (
+                <div className="alert alert-error sm:col-span-2" role="alert">
+                  <span>{companyDateError}</span>
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => void loadCompanyDate()}
+                    type="button"
+                  >
+                    {copy.retry}
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <label className="fieldset">
+                    <span className="fieldset-legend">{copy.startDate}</span>
+                    <input
+                      className="input w-full"
+                      type="date"
+                      value={startDate}
+                      onChange={(event) => {
+                        setStartDate(event.target.value);
+                        if (mode === "single") setEndDate(event.target.value);
+                      }}
+                    />
+                  </label>
+                  <label className="fieldset">
+                    <span className="fieldset-legend">{copy.endDate}</span>
+                    <input
+                      className="input w-full"
+                      disabled={mode === "single"}
+                      type="date"
+                      value={endDate}
+                      onChange={(event) => setEndDate(event.target.value)}
+                    />
+                  </label>
+                </>
+              )}
               <label className="fieldset">
                 <span className="fieldset-legend">{copy.location}</span>
                 <select
@@ -454,7 +506,7 @@ export default function PlannerPage() {
             <div className="card-actions mt-4">
               <button
                 className="btn"
-                disabled={!recurrenceValid}
+                disabled={!startDate || !recurrenceValid}
                 onClick={() => void previewChanges()}
                 type="button"
               >

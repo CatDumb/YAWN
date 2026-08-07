@@ -101,7 +101,7 @@ def ratio_ledger(*, employee, start_date, end_date, as_of_date):
                     assignment_status="legacy",
                     rule_version=None,
                     expected_fraction=baseline.target_days,
-                    approval_credit=baseline.achieved_days,
+                    approval_credit=Decimal("0"),
                     self_submitted_credit=baseline.achieved_days,
                     source="legacy_carry_forward",
                 )

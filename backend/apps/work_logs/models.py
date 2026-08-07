@@ -1,6 +1,8 @@
 # ruff: noqa: DJ012
 
 from calendar import monthrange
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -10,6 +12,20 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.accounts.models import Company, CompanyMembership
+
+_final_period_mutation_allowed = ContextVar(
+    "final_period_mutation_allowed",
+    default=False,
+)
+
+
+@contextmanager
+def _allow_final_period_mutation():
+    token = _final_period_mutation_allowed.set(True)
+    try:
+        yield
+    finally:
+        _final_period_mutation_allowed.reset(token)
 
 
 class EffectiveDatedModel(models.Model):
@@ -117,14 +133,31 @@ class FiscalPeriod(models.Model):  # noqa: DJ012
                 company_ids.add(original_company_id)
             list(Company.objects.select_for_update().filter(pk__in=company_ids).order_by("pk"))
             if self.pk:
-                locked_company_id = (
-                    FiscalPeriod.objects.select_for_update()
-                    .filter(pk=self.pk)
-                    .values_list("company_id", flat=True)
-                    .first()
-                )
-                if locked_company_id != original_company_id:
+                original = FiscalPeriod.objects.select_for_update().filter(pk=self.pk).first()
+                if original is None:
+                    raise RuntimeError("Fiscal period was deleted while acquiring its lock.")
+                if original.company_id != original_company_id:
                     raise RuntimeError("Fiscal period changed while acquiring its company lock.")
+                protected_fields = (
+                    "company_id",
+                    "start_date",
+                    "end_date",
+                    "reconciliation_cutoff",
+                    "state",
+                )
+                protected_change = any(
+                    getattr(original, field) != getattr(self, field)
+                    for field in protected_fields
+                )
+                if (
+                    original.state == self.State.FINAL
+                    and protected_change
+                    and not _final_period_mutation_allowed.get()
+                ):
+                    raise ValidationError(
+                        "Final fiscal period boundaries and state can only change through "
+                        "the audited reopen service."
+                    )
             if not self.reconciliation_cutoff and self.end_date:
                 cutoff_day = self.end_date + timedelta(days=14)
                 self.reconciliation_cutoff = timezone.make_aware(
@@ -682,13 +715,19 @@ class FinalizedLedgerRevision(models.Model):
 
 
 class WorkIntentionSeries(models.Model):
+    class LocationChoice(models.TextChoices):
+        OFFICE = "office", "Office"
+        HOME = "home", "Home"
+
+    class CommitmentChoice(models.TextChoices):
+        FIRM = "firm", "Firm"
+        FLEXIBLE = "flexible", "Flexible"
+
     employee = models.ForeignKey(
         CompanyMembership, on_delete=models.CASCADE, related_name="intention_series"
     )
-    location = models.CharField(max_length=12, choices=[("office", "Office"), ("home", "Home")])
-    commitment = models.CharField(
-        max_length=12, choices=[("firm", "Firm"), ("flexible", "Flexible")]
-    )
+    location = models.CharField(max_length=12, choices=LocationChoice.choices)
+    commitment = models.CharField(max_length=12, choices=CommitmentChoice.choices)
     weekdays = models.JSONField(default=list, blank=True)
     starts_on = models.DateField()
     ends_on = models.DateField()
@@ -705,9 +744,13 @@ class WorkIntentionOccurrence(models.Model):
         CompanyMembership, on_delete=models.CASCADE, related_name="intentions"
     )
     date = models.DateField()
-    location = models.CharField(max_length=12, choices=[("office", "Office"), ("home", "Home")])
+    location = models.CharField(
+        max_length=12,
+        choices=WorkIntentionSeries.LocationChoice.choices,
+    )
     commitment = models.CharField(
-        max_length=12, choices=[("firm", "Firm"), ("flexible", "Flexible")]
+        max_length=12,
+        choices=WorkIntentionSeries.CommitmentChoice.choices,
     )
     note = models.CharField(max_length=300, blank=True)
     series = models.ForeignKey(

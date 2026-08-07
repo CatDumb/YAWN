@@ -43,6 +43,29 @@ def create_baseline(employee):
     )
 
 
+def test_employee_entered_transition_baseline_is_not_approved_credit(
+    policy_employee, transition_period
+):
+    save_transition_baseline(
+        employee=policy_employee,
+        cutoff_month=date(2026, 6, 1),
+        target_days=Decimal("10.00"),
+        achieved_days=Decimal("10.00"),
+        actor=policy_employee.user,
+    )
+
+    report = report_for(
+        employee=policy_employee,
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 6, 30),
+    )
+
+    assert report["approved_days"] == Decimal("0")
+    assert report["self_submitted_days"] == Decimal("10.00")
+    assert report["ledger"][0]["approval_credit"] == "0"
+    assert report["ledger"][0]["self_submitted_credit"] == "10.00"
+
+
 def test_transition_baseline_carries_into_local_ratio(policy_employee, transition_period):
     baseline = create_baseline(policy_employee)
     ProjectStatusRule.objects.create(
@@ -66,9 +89,11 @@ def test_transition_baseline_carries_into_local_ratio(policy_employee, transitio
     )
 
     assert baseline.cutoff_date == date(2026, 6, 30)
-    assert report["approved_days"] == Decimal("9.25")
+    assert report["approved_days"] == Decimal("1")
+    assert report["self_submitted_days"] == Decimal("9.25")
     assert report["expected_fraction_sum"] == Decimal("12.00")
-    assert report["ratio_display"] == "77.09%"
+    assert report["ratio_display"] == "8.34%"
+    assert report["self_submitted_ratio_display"] == "77.09%"
     assert report["baseline_included"] is True
     assert report["ledger"][0]["source"] == "legacy_carry_forward"
     assert AuditEvent.objects.filter(event_type="work_logs.transition_baseline_created").exists()

@@ -12,6 +12,9 @@ import { formatMessage, languageFromDocument, messagesFor } from "@/lib/i18n";
 
 type DashboardCopy = ReturnType<typeof messagesFor>["dashboard"];
 
+type CompanyContext = {
+  company_date: string;
+};
 type Today = {
   date: string;
   record_id: number | null;
@@ -36,6 +39,16 @@ type Ratio = {
   period_state: string;
   reconciliation_cutoff: string | null;
   revision: number | null;
+};
+type Projection = {
+  period_name: string;
+  expected_fraction_sum: string;
+  minimum_planned_fraction: string;
+  maximum_planned_fraction: string;
+  gap_after_maximum: string;
+  firm_office_days: number;
+  flexible_office_days: number;
+  unplanned_eligible_days: number;
 };
 type Activity = {
   records: Array<{ id: number; date: string; state: string }>;
@@ -343,25 +356,29 @@ function Module({
 }
 
 export default function DashboardPage() {
-  const language = languageFromDocument();
+  const [language] = useState(languageFromDocument);
   const messages = messagesFor(language);
   const copy = messages.dashboard;
   const common = messages.common;
+  const plannerCopy = messages.planner;
   const [today, setToday] = useState<Today | null>(null);
   const [todayError, setTodayError] = useState<string | null>(null);
   const [todayLoading, setTodayLoading] = useState(true);
   const [ratio, setRatio] = useState<Ratio | null>(null);
   const [ratioError, setRatioError] = useState<string | null>(null);
   const [ratioLoading, setRatioLoading] = useState(true);
+  const [projection, setProjection] = useState<Projection | null>(null);
+  const [projectionError, setProjectionError] = useState<string | null>(null);
+  const [projectionLoading, setProjectionLoading] = useState(true);
   const [activity, setActivity] = useState<Activity | null>(null);
   const [activityError, setActivityError] = useState<string | null>(null);
   const [activityLoading, setActivityLoading] = useState(true);
   const [heatmap, setHeatmap] = useState<HeatmapDay[] | null>(null);
   const [heatmapError, setHeatmapError] = useState<string | null>(null);
   const [heatmapLoading, setHeatmapLoading] = useState(true);
-  const [selectedMonth, setSelectedMonth] = useState(() =>
-    new Date().toISOString().slice(0, 7),
-  );
+  const [selectedMonth, setSelectedMonth] = useState("");
+  const [companyDateError, setCompanyDateError] = useState<string | null>(null);
+  const [companyDateLoading, setCompanyDateLoading] = useState(true);
   const request = useCallback(
     async <T,>(
       path: string,
@@ -370,6 +387,8 @@ export default function DashboardPage() {
       setLoading: (value: boolean) => void,
       signal?: AbortSignal,
     ) => {
+      const moduleUnavailable =
+        messagesFor(language).dashboard.moduleUnavailable;
       setLoading(true);
       setError(null);
       try {
@@ -377,21 +396,47 @@ export default function DashboardPage() {
           ? await apiFetch(path, { signal })
           : await apiFetch(path);
         if (!response.ok)
-          throw await apiErrorFromResponse(response, copy.moduleUnavailable);
+          throw await apiErrorFromResponse(response, moduleUnavailable);
         const payload = (await response.json()) as T;
         if (!signal?.aborted) setValue(payload);
       } catch (error) {
         if (signal?.aborted) return;
-        setError(userFacingError(error, copy.moduleUnavailable));
+        setError(userFacingError(error, moduleUnavailable));
       } finally {
         if (!signal?.aborted) setLoading(false);
       }
     },
-    [copy.moduleUnavailable],
+    [language],
   );
   const monthQuery = selectedMonth
     ? `?year=${selectedMonth.slice(0, 4)}&month=${selectedMonth.slice(5, 7)}`
     : "";
+  const loadCompanyDate = useCallback(
+    async (signal?: AbortSignal) => {
+      const companyDateFailed =
+        messagesFor(language).dashboard.companyDateFailed;
+      setCompanyDateLoading(true);
+      setCompanyDateError(null);
+      try {
+        const response = signal
+          ? await apiFetch("/api/v1/work-in-office/meta/", { signal })
+          : await apiFetch("/api/v1/work-in-office/meta/");
+        if (!response.ok)
+          throw await apiErrorFromResponse(response, companyDateFailed);
+        const payload = (await response.json()) as CompanyContext;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(payload.company_date))
+          throw new Error(companyDateFailed);
+        if (!signal?.aborted)
+          setSelectedMonth(payload.company_date.slice(0, 7));
+      } catch (error) {
+        if (signal?.aborted) return;
+        setCompanyDateError(userFacingError(error, companyDateFailed));
+      } finally {
+        if (!signal?.aborted) setCompanyDateLoading(false);
+      }
+    },
+    [language],
+  );
   const loadToday = useCallback(
     (signal?: AbortSignal) =>
       void request<Today>(
@@ -410,6 +455,17 @@ export default function DashboardPage() {
         setRatio,
         setRatioError,
         setRatioLoading,
+        signal,
+      ),
+    [request],
+  );
+  const loadProjection = useCallback(
+    (signal?: AbortSignal) =>
+      void request<Projection>(
+        "/api/v1/planner/projection/",
+        setProjection,
+        setProjectionError,
+        setProjectionLoading,
         signal,
       ),
     [request],
@@ -441,13 +497,26 @@ export default function DashboardPage() {
     const timer = window.setTimeout(() => {
       loadToday(controller.signal);
       loadRatio(controller.signal);
+      loadProjection(controller.signal);
     }, 0);
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [loadRatio, loadToday]);
+  }, [loadProjection, loadRatio, loadToday]);
   useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(
+      () => loadCompanyDate(controller.signal),
+      0,
+    );
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [loadCompanyDate]);
+  useEffect(() => {
+    if (!selectedMonth) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       loadActivity(controller.signal);
@@ -457,7 +526,7 @@ export default function DashboardPage() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [loadActivity, loadHeatmap]);
+  }, [loadActivity, loadHeatmap, selectedMonth]);
 
   const todayHref = today?.record_id
     ? `/work-in-office/${today.record_id}`
@@ -494,7 +563,7 @@ export default function DashboardPage() {
 
         <TransitionBaselineCard onSaved={loadRatio} />
 
-        <div className="grid gap-5 lg:grid-cols-2">
+        <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-3">
           <Module
             error={todayError}
             loading={todayLoading}
@@ -502,7 +571,7 @@ export default function DashboardPage() {
             retry={loadToday}
             retryLabel={common.retry}
           >
-            <section className="card bg-base-200 shadow-sm">
+            <section className="card bg-base-200 h-full shadow-sm">
               <div className="card-body">
                 <h2 className="card-title">{copy.todayTitle}</h2>
                 <p>
@@ -541,7 +610,7 @@ export default function DashboardPage() {
             retry={loadRatio}
             retryLabel={common.retry}
           >
-            <section className="card bg-base-200 shadow-sm">
+            <section className="card bg-base-200 h-full shadow-sm">
               <div className="card-body">
                 <h2 className="card-title">{copy.ratioTitle}</h2>
                 {ratio?.available ? (
@@ -620,6 +689,78 @@ export default function DashboardPage() {
               </div>
             </section>
           </Module>
+          <Module
+            error={projectionError}
+            loading={projectionLoading}
+            loadingLabel={plannerCopy.loadingCoverage}
+            retry={loadProjection}
+            retryLabel={common.retry}
+          >
+            <section className="card bg-base-200 h-full shadow-sm">
+              <div className="card-body">
+                <h2 className="card-title">{plannerCopy.coverageTitle}</h2>
+                <p className="text-base-content/70 text-sm">
+                  {plannerCopy.coverageIntro}
+                </p>
+                {projection ? (
+                  <>
+                    <div className="stats stats-vertical bg-base-100 sm:stats-horizontal xl:stats-vertical w-full shadow-sm">
+                      <div className="stat gap-1 px-4 py-3">
+                        <div className="stat-title">
+                          {plannerCopy.firmMinimum}
+                        </div>
+                        <div className="stat-value text-2xl">
+                          {projection.minimum_planned_fraction}
+                        </div>
+                        <div className="stat-desc">
+                          {formatMessage(plannerCopy.firmMinimumValue, {
+                            value: projection.minimum_planned_fraction,
+                            days: projection.firm_office_days,
+                          })}
+                        </div>
+                      </div>
+                      <div className="stat gap-1 px-4 py-3">
+                        <div className="stat-title">
+                          {plannerCopy.flexibleMaximum}
+                        </div>
+                        <div className="stat-value text-2xl">
+                          {projection.maximum_planned_fraction}
+                        </div>
+                        <div className="stat-desc">
+                          {formatMessage(plannerCopy.flexibleMaximumValue, {
+                            value: projection.maximum_planned_fraction,
+                            days: projection.flexible_office_days,
+                          })}
+                        </div>
+                      </div>
+                      <div className="stat gap-1 px-4 py-3">
+                        <div className="stat-title">
+                          {plannerCopy.rawExpectedFraction}
+                        </div>
+                        <div className="stat-value text-2xl">
+                          {projection.expected_fraction_sum}
+                        </div>
+                        <div className="stat-desc">
+                          {projection.period_name}
+                        </div>
+                      </div>
+                    </div>
+                    {Number(projection.gap_after_maximum) > 0 ? (
+                      <div className="alert alert-warning" role="status">
+                        <span>
+                          {plannerCopy.unplannedEligibleDays}:{" "}
+                          {formatMessage(plannerCopy.unplannedGapValue, {
+                            days: projection.unplanned_eligible_days,
+                            gap: projection.gap_after_maximum,
+                          })}
+                        </span>
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+            </section>
+          </Module>
         </div>
 
         <section className="card bg-base-200 shadow-sm">
@@ -629,213 +770,239 @@ export default function DashboardPage() {
                 <h2 className="card-title">{copy.monthlyActivity}</h2>
                 <p className="text-base-content/70 text-sm">{copy.monthHelp}</p>
               </div>
-              <div className="join" aria-label={copy.chooseMonth}>
-                <button
-                  className="btn join-item"
-                  onClick={() =>
-                    setSelectedMonth(shiftMonth(selectedMonth, -1))
-                  }
-                  type="button"
-                >
-                  {copy.previous}
-                </button>
-                <input
-                  aria-label={copy.dashboardMonth}
-                  className="input join-item"
-                  onChange={(event) => setSelectedMonth(event.target.value)}
-                  type="month"
-                  value={selectedMonth}
+              {companyDateLoading ? (
+                <div
+                  aria-label={copy.loadingCompanyDate}
+                  className="skeleton h-10 w-64"
                 />
+              ) : companyDateError ? null : (
+                <div className="join" aria-label={copy.chooseMonth}>
+                  <button
+                    className="btn join-item"
+                    onClick={() =>
+                      setSelectedMonth(shiftMonth(selectedMonth, -1))
+                    }
+                    type="button"
+                  >
+                    {copy.previous}
+                  </button>
+                  <input
+                    aria-label={copy.dashboardMonth}
+                    className="input join-item"
+                    onChange={(event) => setSelectedMonth(event.target.value)}
+                    type="month"
+                    value={selectedMonth}
+                  />
+                  <button
+                    className="btn join-item"
+                    onClick={() =>
+                      setSelectedMonth(shiftMonth(selectedMonth, 1))
+                    }
+                    type="button"
+                  >
+                    {copy.next}
+                  </button>
+                </div>
+              )}
+            </div>
+            {companyDateError ? (
+              <div className="alert alert-error mt-4" role="alert">
+                <span>{companyDateError}</span>
                 <button
-                  className="btn join-item"
-                  onClick={() => setSelectedMonth(shiftMonth(selectedMonth, 1))}
+                  className="btn btn-sm"
+                  onClick={() => void loadCompanyDate()}
                   type="button"
                 >
-                  {copy.next}
+                  {common.retry}
                 </button>
               </div>
-            </div>
-            <Module
-              error={heatmapError}
-              loading={heatmapLoading}
-              loadingLabel={copy.loadingModule}
-              preserveContent={Boolean(heatmap)}
-              retry={loadHeatmap}
-              retryLabel={common.retry}
-            >
-              <div
-                className="mt-4 grid grid-cols-7 gap-1"
-                aria-label={copy.heatmapLabel}
+            ) : selectedMonth ? (
+              <Module
+                error={heatmapError}
+                loading={heatmapLoading}
+                loadingLabel={copy.loadingModule}
+                preserveContent={Boolean(heatmap)}
+                retry={loadHeatmap}
+                retryLabel={common.retry}
               >
-                {weekdayLabels.map((weekday) => (
-                  <span
-                    className="min-w-0 px-1 text-center text-xs font-semibold"
-                    data-testid="heatmap-weekday"
-                    key={weekday}
-                  >
-                    {weekday}
-                  </span>
-                ))}
-                {Array.from(
-                  { length: mondayOffset(selectedMonth) },
-                  (_, index) => (
+                <div
+                  className="mt-4 grid grid-cols-7 gap-1"
+                  aria-label={copy.heatmapLabel}
+                >
+                  {weekdayLabels.map((weekday) => (
                     <span
-                      aria-hidden="true"
-                      className="min-h-11"
-                      data-heatmap-leading-day="true"
-                      key={`leading-${index}`}
-                    />
-                  ),
-                )}
-                {heatmap?.map((day) => {
-                  const visual = heatmapVisual(heatmapState(day), copy);
-                  const label = formatMessage(copy.heatmapDayLabel, {
-                    date: formatDate(day.date),
-                    state: stateLabel(day, copy),
-                  });
-                  const content = (
-                    <>
-                      <span>{new Date(`${day.date}T00:00:00`).getDate()}</span>
-                      <span aria-hidden="true" className="font-bold">
-                        {visual.symbol}
-                      </span>
-                    </>
-                  );
-                  const href =
-                    day.action === "open" && day.record_id
-                      ? `/work-in-office/${day.record_id}`
-                      : day.action === "create"
-                        ? `/work-in-office/new?date=${day.date}`
-                        : null;
-                  return href ? (
-                    <Link
-                      aria-label={label}
-                      className={`btn btn-sm min-h-11 border ${visual.className}`}
-                      data-heatmap-state={heatmapState(day).key}
-                      href={href}
-                      key={day.date}
+                      className="min-w-0 px-1 text-center text-xs font-semibold"
+                      data-testid="heatmap-weekday"
+                      key={weekday}
                     >
-                      {content}
-                    </Link>
-                  ) : (
-                    <span
-                      aria-disabled="true"
-                      aria-label={label}
-                      className={`btn btn-sm min-h-11 cursor-default border ${visual.className}`}
-                      data-heatmap-state={heatmapState(day).key}
-                      key={day.date}
-                      title={stateLabel(day, copy)}
-                    >
-                      {content}
+                      {weekday}
                     </span>
-                  );
-                })}
-              </div>
-              <section aria-labelledby="heatmap-legend" className="mt-4">
-                <h3 className="text-sm font-semibold" id="heatmap-legend">
-                  {copy.legendTitle}
-                </h3>
-                <ul className="mt-2 grid gap-y-2 text-sm">
-                  {legendStates().map((state) => {
-                    const visual = heatmapVisual(state, copy);
-                    return (
-                      <li
-                        className="grid grid-cols-[1rem_0.75rem_0.5rem_minmax(0,1fr)] items-center gap-x-1.5"
-                        key={`${state.key}-${state.commitment ?? ""}`}
-                      >
-                        <span
-                          aria-hidden="true"
-                          className={`size-4 shrink-0 rounded-sm border ${visual.className}`}
-                          data-heatmap-state={state.key}
-                        />
-                        <span
-                          aria-hidden="true"
-                          className="w-3 text-center font-bold"
-                        >
+                  ))}
+                  {Array.from(
+                    { length: mondayOffset(selectedMonth) },
+                    (_, index) => (
+                      <span
+                        aria-hidden="true"
+                        className="min-h-11"
+                        data-heatmap-leading-day="true"
+                        key={`leading-${index}`}
+                      />
+                    ),
+                  )}
+                  {heatmap?.map((day) => {
+                    const visual = heatmapVisual(heatmapState(day), copy);
+                    const label = formatMessage(copy.heatmapDayLabel, {
+                      date: formatDate(day.date),
+                      state: stateLabel(day, copy),
+                    });
+                    const content = (
+                      <>
+                        <span>
+                          {new Date(`${day.date}T00:00:00`).getDate()}
+                        </span>
+                        <span aria-hidden="true" className="font-bold">
                           {visual.symbol}
                         </span>
-                        <span aria-hidden="true">:</span>
-                        <span>{visual.label}</span>
-                      </li>
+                      </>
+                    );
+                    const href =
+                      day.action === "open" && day.record_id
+                        ? `/work-in-office/${day.record_id}`
+                        : day.action === "create"
+                          ? `/work-in-office/new?date=${day.date}`
+                          : null;
+                    return href ? (
+                      <Link
+                        aria-label={label}
+                        className={`btn btn-sm min-h-11 border ${visual.className}`}
+                        data-heatmap-state={heatmapState(day).key}
+                        href={href}
+                        key={day.date}
+                      >
+                        {content}
+                      </Link>
+                    ) : (
+                      <span
+                        aria-disabled="true"
+                        aria-label={label}
+                        className={`btn btn-sm min-h-11 cursor-default border ${visual.className}`}
+                        data-heatmap-state={heatmapState(day).key}
+                        key={day.date}
+                        title={stateLabel(day, copy)}
+                      >
+                        {content}
+                      </span>
                     );
                   })}
-                </ul>
-              </section>
-              <p className="text-base-content/70 mt-1 text-sm">
-                {copy.nonColorHelp}
-              </p>
-            </Module>
+                </div>
+                <section aria-labelledby="heatmap-legend" className="mt-4">
+                  <h3 className="text-sm font-semibold" id="heatmap-legend">
+                    {copy.legendTitle}
+                  </h3>
+                  <ul className="mt-2 grid gap-y-2 text-sm">
+                    {legendStates().map((state) => {
+                      const visual = heatmapVisual(state, copy);
+                      return (
+                        <li
+                          className="grid grid-cols-[1rem_0.75rem_0.5rem_minmax(0,1fr)] items-center gap-x-1.5"
+                          key={`${state.key}-${state.commitment ?? ""}`}
+                        >
+                          <span
+                            aria-hidden="true"
+                            className={`size-4 shrink-0 rounded-sm border ${visual.className}`}
+                            data-heatmap-state={state.key}
+                          />
+                          <span
+                            aria-hidden="true"
+                            className="w-3 text-center font-bold"
+                          >
+                            {visual.symbol}
+                          </span>
+                          <span aria-hidden="true">:</span>
+                          <span>{visual.label}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+                <p className="text-base-content/70 mt-1 text-sm">
+                  {copy.nonColorHelp}
+                </p>
+              </Module>
+            ) : null}
           </div>
         </section>
 
-        <section className="grid gap-5 lg:grid-cols-2">
-          <Module
-            error={activityError}
-            loading={activityLoading}
-            loadingLabel={copy.loadingModule}
-            preserveContent={Boolean(activity)}
-            retry={loadActivity}
-            retryLabel={common.retry}
-          >
-            <section className="card bg-base-200 shadow-sm">
-              <div className="card-body">
-                <h2 className="card-title">{copy.recentRecords}</h2>
-                {activity?.records.length ? (
-                  <ul className="list">
-                    {activity.records.map((record) => (
-                      <li className="list-row" key={record.id}>
-                        <span>{formatDate(record.date)}</span>
-                        <span className="badge badge-soft">
-                          {reviewStateLabel(record.state, copy)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-base-content/70">
-                    {copy.noRecordsThisMonth}
-                  </p>
-                )}
-              </div>
-            </section>
-          </Module>
-          <Module
-            error={activity ? null : activityError}
-            loading={activity ? false : activityLoading}
-            loadingLabel={copy.loadingModule}
-            preserveContent={Boolean(activity)}
-            retry={loadActivity}
-            retryLabel={common.retry}
-          >
-            <section className="card bg-base-200 shadow-sm">
-              <div className="card-body">
-                <h2 className="card-title">{copy.upcomingPlans}</h2>
-                {activity?.intentions.length ? (
-                  <ul className="list">
-                    {activity.intentions.map((intention) => (
-                      <li className="list-row" key={`plan-${intention.id}`}>
-                        <span>{formatDate(intention.date)}</span>
-                        <span>
-                          {formatMessage(copy.planIntention, {
-                            commitment: commitmentLabel(
-                              intention.commitment,
-                              copy,
-                            ),
-                            location: locationLabel(intention.location, copy),
-                          })}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-base-content/70">
-                    {copy.noUpcomingIntentions}
-                  </p>
-                )}
-              </div>
-            </section>
-          </Module>
-        </section>
+        {selectedMonth ? (
+          <section className="grid gap-5 lg:grid-cols-2">
+            <Module
+              error={activityError}
+              loading={activityLoading}
+              loadingLabel={copy.loadingModule}
+              preserveContent={Boolean(activity)}
+              retry={loadActivity}
+              retryLabel={common.retry}
+            >
+              <section className="card bg-base-200 shadow-sm">
+                <div className="card-body">
+                  <h2 className="card-title">{copy.recentRecords}</h2>
+                  {activity?.records.length ? (
+                    <ul className="list">
+                      {activity.records.map((record) => (
+                        <li className="list-row" key={record.id}>
+                          <span>{formatDate(record.date)}</span>
+                          <span className="badge badge-soft">
+                            {reviewStateLabel(record.state, copy)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-base-content/70">
+                      {copy.noRecordsThisMonth}
+                    </p>
+                  )}
+                </div>
+              </section>
+            </Module>
+            <Module
+              error={activity ? null : activityError}
+              loading={activity ? false : activityLoading}
+              loadingLabel={copy.loadingModule}
+              preserveContent={Boolean(activity)}
+              retry={loadActivity}
+              retryLabel={common.retry}
+            >
+              <section className="card bg-base-200 shadow-sm">
+                <div className="card-body">
+                  <h2 className="card-title">{copy.upcomingPlans}</h2>
+                  {activity?.intentions.length ? (
+                    <ul className="list">
+                      {activity.intentions.map((intention) => (
+                        <li className="list-row" key={`plan-${intention.id}`}>
+                          <span>{formatDate(intention.date)}</span>
+                          <span>
+                            {formatMessage(copy.planIntention, {
+                              commitment: commitmentLabel(
+                                intention.commitment,
+                                copy,
+                              ),
+                              location: locationLabel(intention.location, copy),
+                            })}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-base-content/70">
+                      {copy.noUpcomingIntentions}
+                    </p>
+                  )}
+                </div>
+              </section>
+            </Module>
+          </section>
+        ) : null}
       </section>
     </AppPage>
   );

@@ -66,6 +66,8 @@ class CurrentUserSerializer(serializers.ModelSerializer):
 
 
 class UserPreferenceSerializer(serializers.ModelSerializer):
+    week_start = serializers.IntegerField(min_value=0, max_value=1)
+
     def validate_planner_location(self, value):
         if value not in {"", "office", "home"}:
             raise serializers.ValidationError("Planner location must be Office or Home.")

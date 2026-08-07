@@ -185,7 +185,8 @@ class OTPRequestView(APIView):
             >= settings.WIO_OTP_IP_REQUESTS_PER_HOUR
         )
         cooling_down = (
-            latest is not None
+            settings.WIO_OTP_RESEND_SECONDS > 0
+            and latest is not None
             and latest.consumed_at is None
             and latest.expires_at > now
             and latest.created_at >= resend_after
@@ -335,17 +336,31 @@ class UserPreferenceView(APIView):
     @extend_schema(request=UserPreferenceSerializer, responses=UserPreferenceSerializer)
     def put(self, request):
         preference, _ = UserPreference.objects.get_or_create(user=request.user)
-        if request.data.get("version") is None:
+        submitted_version = request.data.get("version")
+        if submitted_version is None:
             return Response(
                 {"detail": "Version is required for preferences."},
                 status=status.HTTP_409_CONFLICT,
             )
-        if request.data.get("version") != preference.version:
+        if submitted_version != preference.version:
             return Response(
                 {"detail": "Preferences changed. Reload latest state and retry."},
                 status=status.HTTP_409_CONFLICT,
             )
         serializer = UserPreferenceSerializer(preference, data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(version=preference.version + 1)
-        return Response(serializer.data)
+        updated = UserPreference.objects.filter(
+            pk=preference.pk,
+            version=submitted_version,
+        ).update(
+            **serializer.validated_data,
+            version=submitted_version + 1,
+            updated_at=timezone.now(),
+        )
+        if updated == 0:
+            return Response(
+                {"detail": "Preferences changed. Reload latest state and retry."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        preference.refresh_from_db()
+        return Response(UserPreferenceSerializer(preference).data)

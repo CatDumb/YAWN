@@ -32,6 +32,7 @@ from apps.work_logs.serializers import (
     ApprovalDecisionReasonSerializer,
     ApprovalDecisionRequestSerializer,
     ApprovalDecisionVersionSerializer,
+    ApprovalWorkInOfficeRecordDetailSerializer,
     ApprovalWorkInOfficeRecordSerializer,
     AuditEventSerializer,
     AuditTimelinePageSerializer,
@@ -406,6 +407,20 @@ class ApprovalQueueView(APIView):
         start = (page - 1) * 50
         records = records[start : start + 50]
         return Response(ApprovalWorkInOfficeRecordSerializer(records, many=True).data)
+
+
+class ApprovalDetailView(APIView):
+    @extend_schema(responses=ApprovalWorkInOfficeRecordDetailSerializer)
+    def get(self, request, pk):
+        try:
+            manager = manager_membership(request.user)
+        except DjangoValidationError as error:
+            return Response({"detail": error.messages[0]}, status=403)
+        record = get_object_or_404(
+            scoped_pending(manager).select_related("employee__base_location", "employee__user"),
+            pk=pk,
+        )
+        return Response(ApprovalWorkInOfficeRecordDetailSerializer(record).data)
 
 
 class ApprovalOwnershipQueueView(APIView):

@@ -50,7 +50,12 @@ from apps.work_logs.planner import (
     save_intentions,
 )
 from apps.work_logs.reports import csv_response, freeze_period_ledgers, report_for
-from apps.work_logs.services import reverse_approved_record, save_record, undo_self_approval
+from apps.work_logs.services import (
+    reopen_fiscal_periods,
+    reverse_approved_record,
+    save_record,
+    undo_self_approval,
+)
 
 
 def membership(*, email, company, role=CompanyMembership.Role.EMPLOYEE):
@@ -287,6 +292,59 @@ def test_manager_queue_decision_is_assignment_scoped(client, db):
     assert approved.status_code == 200
     assert approved.json()["review_state"] == WorkInOfficeRecord.ReviewState.APPROVED
     assert mail.outbox == []
+
+
+def test_approval_detail_exposes_note_only_to_current_assigned_manager(client, db):
+    company = Company.objects.create(name="Approval Detail", slug="approval-detail")
+    employee = membership(email="detail-employee@example.com", company=company)
+    assigned_manager = membership(
+        email="detail-assigned@example.com",
+        company=company,
+        role=CompanyMembership.Role.MANAGER,
+    )
+    unassigned_manager = membership(
+        email="detail-unassigned@example.com",
+        company=company,
+        role=CompanyMembership.Role.MANAGER,
+    )
+    hr = membership(
+        email="detail-hr@example.com",
+        company=company,
+        role=CompanyMembership.Role.HR_ADMIN,
+    )
+    record = WorkInOfficeRecord.objects.create(
+        employee=employee,
+        work_date=timezone.localdate(),
+        location_choice=WorkInOfficeRecord.LocationChoice.IN_OFFICE,
+        review_state=WorkInOfficeRecord.ReviewState.PENDING,
+        note="Badge reader outage; visitor log has proof.",
+        approval_owner_snapshot={"membership_id": assigned_manager.pk},
+        submitted_at=timezone.now(),
+    )
+    detail_url = f"/api/v1/approvals/{record.pk}/"
+
+    client.force_login(assigned_manager.user)
+    response = client.get(detail_url)
+    assert response.status_code == 200
+    assert response.json()["note"] == record.note
+    assert "note" not in client.get("/api/v1/approvals/").json()[0]
+
+    client.force_login(unassigned_manager.user)
+    assert client.get(detail_url).status_code == 404
+
+    client.force_login(hr.user)
+    assert client.get(detail_url).status_code == 403
+
+    record.approval_owner_snapshot = {"membership_id": unassigned_manager.pk}
+    record.save(update_fields=["approval_owner_snapshot", "updated_at"])
+
+    client.force_login(assigned_manager.user)
+    assert client.get(detail_url).status_code == 404
+
+    client.force_login(unassigned_manager.user)
+    reassigned_response = client.get(detail_url)
+    assert reassigned_response.status_code == 200
+    assert reassigned_response.json()["note"] == record.note
 
 
 def test_manager_queue_prioritizes_reconciliation_claims_before_active_oldest(client, db):
@@ -1645,6 +1703,55 @@ def test_planner_preview_save_and_delete_stay_owner_private(client, db):
     assert deleted.status_code == 204
 
 
+def test_planner_save_skips_initially_ineligible_dates_without_creating_empty_series(db):
+    company = Company.objects.create(name="Yawn", slug="yawn")
+    employee = membership(email="employee@example.com", company=company)
+    today = timezone.localdate()
+    active_period(company, today)
+    monday = today + timedelta(days=(7 - today.weekday()) % 7)
+    saturday = monday + timedelta(days=5)
+    CompanyHoliday.objects.create(company=company, date=monday, name="Founders")
+    ApprovedLeave.objects.create(
+        employee=employee,
+        effective_from=monday + timedelta(days=1),
+        effective_to=monday + timedelta(days=1),
+        reason="Private leave reason",
+    )
+    RemoteWorkException.objects.create(
+        employee=employee,
+        effective_from=monday + timedelta(days=2),
+        effective_to=monday + timedelta(days=2),
+        reason="Private remote reason",
+    )
+
+    previewed = preview(
+        employee=employee,
+        start=monday,
+        end=saturday,
+        weekdays=[0, 1, 2, 5],
+    )
+    records = save_intentions(
+        employee=employee,
+        start=monday,
+        end=saturday,
+        weekdays=[0, 1, 2, 5],
+        location="office",
+        commitment="firm",
+        note="Must not be persisted",
+    )
+
+    assert [(item["date"], item["reason"]) for item in previewed] == [
+        (monday, "Public holiday"),
+        (monday + timedelta(days=1), "Approved leave"),
+        (monday + timedelta(days=2), "Approved remote-work exception"),
+        (saturday, "Weekend"),
+    ]
+    assert all(not item["eligible"] for item in previewed)
+    assert records == []
+    assert not WorkIntentionOccurrence.objects.filter(employee=employee).exists()
+    assert not WorkIntentionSeries.objects.filter(employee=employee).exists()
+
+
 def test_planner_projection_and_save_failures_recover_without_logging_private_content(
     client, db, monkeypatch, caplog
 ):
@@ -1908,12 +2015,15 @@ def test_planner_future_edit_splits_without_rewriting_earlier_occurrence(db):
     company = Company.objects.create(name="Yawn", slug="yawn")
     employee = membership(email="employee@example.com", company=company)
     today = timezone.localdate()
+    later_date = today + timedelta(days=1)
+    while later_date.weekday() >= 5:
+        later_date += timedelta(days=1)
     series = WorkIntentionSeries.objects.create(
         employee=employee,
         location="office",
         commitment="firm",
         starts_on=today,
-        ends_on=today + timedelta(days=2),
+        ends_on=later_date,
     )
     earlier = WorkIntentionOccurrence.objects.create(
         employee=employee,
@@ -1924,7 +2034,7 @@ def test_planner_future_edit_splits_without_rewriting_earlier_occurrence(db):
     )
     later = WorkIntentionOccurrence.objects.create(
         employee=employee,
-        date=today + timedelta(days=1),
+        date=later_date,
         location="office",
         commitment="firm",
         series=series,
@@ -1943,10 +2053,125 @@ def test_planner_future_edit_splits_without_rewriting_earlier_occurrence(db):
     assert len(updated) == 1
     assert earlier.series_id == series.pk
     assert earlier.location == "office"
-    assert series.ends_on == today
+    assert series.ends_on == later_date - timedelta(days=1)
     assert later.series_id != series.pk
     assert later.location == "home"
     assert later.commitment == "flexible"
+
+
+def test_planner_one_occurrence_override_survives_whole_series_edit(db):
+    company = Company.objects.create(name="Yawn", slug="yawn")
+    employee = membership(email="employee@example.com", company=company)
+    today = timezone.localdate()
+    series_date = today + timedelta(days=1)
+    while series_date.weekday() >= 5:
+        series_date += timedelta(days=1)
+    series = WorkIntentionSeries.objects.create(
+        employee=employee,
+        location="office",
+        commitment="firm",
+        starts_on=today,
+        ends_on=series_date,
+        note="Original series",
+    )
+    override = WorkIntentionOccurrence.objects.create(
+        employee=employee,
+        date=today,
+        location="office",
+        commitment="firm",
+        series=series,
+        note="Original series",
+    )
+    series_member = WorkIntentionOccurrence.objects.create(
+        employee=employee,
+        date=series_date,
+        location="office",
+        commitment="firm",
+        series=series,
+        note="Original series",
+    )
+
+    edit_intention(
+        employee=employee,
+        record_id=override.pk,
+        version=override.version,
+        scope="one",
+        location="home",
+        commitment="flexible",
+        note="One-date override",
+    )
+    edit_intention(
+        employee=employee,
+        record_id=series_member.pk,
+        version=series_member.version,
+        scope="series",
+        note="Updated series",
+    )
+
+    override.refresh_from_db()
+    series_member.refresh_from_db()
+    assert override.series_id is None
+    assert (override.location, override.commitment, override.note) == (
+        "home",
+        "flexible",
+        "One-date override",
+    )
+    assert series_member.note == "Updated series"
+
+
+def test_planner_one_occurrence_override_survives_series_deletion(client, db):
+    company = Company.objects.create(name="Yawn", slug="yawn")
+    employee = membership(email="employee@example.com", company=company)
+    today = timezone.localdate()
+    series_date = today + timedelta(days=1)
+    while series_date.weekday() >= 5:
+        series_date += timedelta(days=1)
+    series = WorkIntentionSeries.objects.create(
+        employee=employee,
+        location="office",
+        commitment="firm",
+        starts_on=today,
+        ends_on=series_date,
+    )
+    override = WorkIntentionOccurrence.objects.create(
+        employee=employee,
+        date=today,
+        location="office",
+        commitment="firm",
+        series=series,
+    )
+    series_member = WorkIntentionOccurrence.objects.create(
+        employee=employee,
+        date=series_date,
+        location="office",
+        commitment="firm",
+        series=series,
+    )
+    edit_intention(
+        employee=employee,
+        record_id=override.pk,
+        version=override.version,
+        scope="one",
+        location="home",
+        commitment="flexible",
+        note="Keep after series deletion",
+    )
+
+    client.force_login(employee.user)
+    deleted = client.delete(
+        f"/api/v1/planner/{series_member.pk}/"
+        f"?version={series_member.version}&scope=series&confirm=true"
+    )
+
+    assert deleted.status_code == 204
+    assert not WorkIntentionSeries.objects.filter(pk=series.pk).exists()
+    override.refresh_from_db()
+    assert override.series_id is None
+    assert (override.location, override.commitment, override.note) == (
+        "home",
+        "flexible",
+        "Keep after series deletion",
+    )
 
 
 def test_planner_purge_removes_linked_series_idempotently(db):
@@ -2192,6 +2417,12 @@ def test_report_and_preference_api_contracts(client, db):
         content_type="application/json",
     )
     assert invalid.status_code == 400
+    invalid_week_start = client.put(
+        "/api/v1/preferences/",
+        {"week_start": 2, "version": saved.json()["version"]},
+        content_type="application/json",
+    )
+    assert invalid_week_start.status_code == 400
     metadata = client.get("/api/v1/work-in-office/meta/")
     assert metadata.status_code == 200
     assert metadata.json()["fiscal_period"]["name"] == "Current"
@@ -2759,10 +2990,12 @@ def test_audited_reopen_creates_linked_successor_revision_without_erasing_histor
     run_finalization(period.pk, steps)
     first = FinalizedLedgerRevision.objects.get(period=period, employee=employee, revision=1)
 
+    reopen_fiscal_periods(
+        period_ids=[period.pk],
+        actor=User.objects.create_superuser(email="revision-reopen@example.com"),
+        reason="Correct finalized attendance evidence",
+    )
     period.refresh_from_db()
-    period.state = FiscalPeriod.State.RECONCILIATION
-    period.reopened_at = timezone.now()
-    period.save(update_fields=["state", "reopened_at", "updated_at"])
     record.location_choice = WorkInOfficeRecord.LocationChoice.NOT_IN_OFFICE
     record.review_state = WorkInOfficeRecord.ReviewState.NOT_REQUIRED
     record.approval_method = None

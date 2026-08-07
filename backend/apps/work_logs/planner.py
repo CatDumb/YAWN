@@ -92,11 +92,12 @@ def notify_planner_purge(period):
 
 
 def active_period(employee):
+    today = company_today(employee.company)
     period = FiscalPeriod.objects.filter(
         company=employee.company,
         state=FiscalPeriod.State.ACTIVE,
-        start_date__lte=company_today(),
-        end_date__gte=company_today(),
+        start_date__lte=today,
+        end_date__gte=today,
     ).first()
     if period is None:
         raise ValidationError("Planner is available only in the current active fiscal period.")
@@ -116,7 +117,7 @@ def dates_for(*, start, end, weekdays=None):
 
 def preview(*, employee, start, end, weekdays=None):
     period = active_period(employee)
-    if start < company_today() or end > period.end_date:
+    if start < company_today(employee.company) or end > period.end_date:
         raise ValidationError("Intentions must be today or later inside the active fiscal period.")
     result = []
     existing = set(
@@ -150,7 +151,6 @@ def projection(*, employee):
     intentions = WorkIntentionOccurrence.objects.filter(
         employee=employee,
         date__range=(period.start_date, period.end_date),
-        excluded_reason="",
         location="office",
     ).values_list("date", "commitment")
     firm = {date for date, commitment in intentions if commitment == "firm"}
@@ -177,15 +177,19 @@ def _intention_values(*, record, location=None, commitment=None, note=None):
         "commitment": commitment if commitment is not None else record.commitment,
         "note": note if note is not None else record.note,
     }
-    if values["location"] not in {"office", "home"}:
+    return _validated_intention_values(**values)
+
+
+def _validated_intention_values(*, location, commitment, note):
+    if location not in WorkIntentionSeries.LocationChoice.values:
         raise ValidationError("Planner location must be Office or Home.")
-    if values["commitment"] not in {"firm", "flexible"}:
+    if commitment not in WorkIntentionSeries.CommitmentChoice.values:
         raise ValidationError("Planner commitment must be Firm or Flexible.")
-    if strip_tags(values["note"]) != values["note"]:
+    if strip_tags(note) != note:
         raise ValidationError("Planner note must be plain text.")
-    if len(values["note"]) > 300:
+    if len(note) > 300:
         raise ValidationError("Planner note must be 300 characters or fewer.")
-    return values
+    return {"location": location, "commitment": commitment, "note": note}
 
 
 @transaction.atomic
@@ -201,16 +205,20 @@ def edit_intention(
         raise ValidationError("Intention not found.")
     if version is None or record.version != version:
         raise RuntimeError("stale")
-    if record.excluded_reason:
+    if eligibility_reason(employee, record.date):
         raise ValidationError("Excluded intentions are read-only. Delete it instead.")
     values = _intention_values(record=record, location=location, commitment=commitment, note=note)
-    today = company_today()
+    today = company_today(employee.company)
     if scope == "one":
+        series_id = record.series_id
         record.location = values["location"]
         record.commitment = values["commitment"]
         record.note = values["note"]
+        record.series = None
         record.version += 1
-        record.save(update_fields=[*values, "version", "updated_at"])
+        record.save(update_fields=[*values, "series", "version", "updated_at"])
+        if series_id is not None:
+            WorkIntentionSeries.objects.filter(pk=series_id, occurrences__isnull=True).delete()
         return [record]
     if record.date < today:
         raise ValidationError("Elapsed intentions cannot be bulk-rewritten.")
@@ -238,7 +246,7 @@ def edit_intention(
         )
         for item in records:
             item.series = new_series
-            if item.excluded_reason:
+            if eligibility_reason(employee, item.date):
                 item.version += 1
                 item.save(update_fields=["series", "version", "updated_at"])
                 continue
@@ -262,7 +270,7 @@ def edit_intention(
             )
         )
         for item in records:
-            if item.excluded_reason:
+            if eligibility_reason(employee, item.date):
                 continue
             item.location = values["location"]
             item.commitment = values["commitment"]
@@ -277,10 +285,14 @@ def edit_intention(
 def save_intentions(
     *, employee, start, end, location, commitment, note="", weekdays=None, replace=False
 ):
-    if strip_tags(note) != note:
-        raise ValidationError("Planner note must be plain text.")
-    if len(note) > 300:
-        raise ValidationError("Planner note must be 300 characters or fewer.")
+    values = _validated_intention_values(
+        location=location,
+        commitment=commitment,
+        note=note,
+    )
+    location = values["location"]
+    commitment = values["commitment"]
+    note = values["note"]
     planned = preview(employee=employee, start=start, end=end, weekdays=weekdays)
     series = None
 
@@ -301,17 +313,6 @@ def save_intentions(
     created = []
     for item in planned:
         if not item["eligible"]:
-            WorkIntentionOccurrence.objects.get_or_create(
-                employee=employee,
-                date=item["date"],
-                defaults={
-                    "location": location,
-                    "commitment": commitment,
-                    "note": note,
-                    "series": materialize_series(),
-                    "excluded_reason": item["reason"],
-                },
-            )
             continue
         occurrence = WorkIntentionOccurrence.objects.filter(
             employee=employee, date=item["date"]

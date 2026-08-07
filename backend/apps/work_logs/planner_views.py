@@ -1,29 +1,34 @@
 import logging
-from datetime import date, timedelta
+from datetime import timedelta
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from drf_spectacular.utils import OpenApiTypes, extend_schema
 from rest_framework import status
+from rest_framework.exceptions import ValidationError as SerializerValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.work_logs.models import WorkIntentionOccurrence, WorkIntentionSeries
 from apps.work_logs.planner import edit_intention, preview, projection, save_intentions
-from apps.work_logs.services import company_today
+from apps.work_logs.serializers import PlannerIntentionInputSerializer
+from apps.work_logs.services import company_today, eligibility_reason
 from apps.work_logs.views import membership_for
 
 logger = logging.getLogger("wio.planner")
 
 
 def parse_payload(data):
+    serializer = PlannerIntentionInputSerializer(data=data)
+    serializer.is_valid(raise_exception=True)
+    values = serializer.validated_data
     return {
-        "start": date.fromisoformat(data["start_date"]),
-        "end": date.fromisoformat(data.get("end_date", data["start_date"])),
-        "location": data["location"],
-        "commitment": data["commitment"],
-        "note": data.get("note", ""),
-        "weekdays": data.get("weekdays"),
+        "start": values["start_date"],
+        "end": values["end_date"],
+        "location": values["location"],
+        "commitment": values["commitment"],
+        "note": values["note"],
+        "weekdays": values["weekdays"],
     }
 
 
@@ -46,6 +51,8 @@ class PlannerPreviewView(APIView):
                 employee=membership_for(request.user),
                 **{k: values[k] for k in ["start", "end", "weekdays"]},
             )
+        except SerializerValidationError as error:
+            return Response(error.detail, status=status.HTTP_400_BAD_REQUEST)
         except (KeyError, ValueError, ValidationError) as error:
             return Response({"detail": str(error)}, status=400)
         return Response([{**item, "date": item["date"].isoformat()} for item in items])
@@ -85,7 +92,7 @@ class PlannerIntentionsView(APIView):
                     "location": item.location,
                     "commitment": item.commitment,
                     "note": item.note,
-                    "excluded_reason": item.excluded_reason,
+                    "excluded_reason": eligibility_reason(employee, item.date) or "",
                     "series_id": item.series_id,
                     "version": item.version,
                 }
@@ -102,6 +109,8 @@ class PlannerIntentionsView(APIView):
                 replace=bool(request.data.get("replace", False)),
                 **values,
             )
+        except SerializerValidationError as error:
+            return Response(error.detail, status=status.HTTP_400_BAD_REQUEST)
         except (KeyError, ValueError, ValidationError) as error:
             return Response({"detail": str(error)}, status=400)
         except Exception as error:
@@ -171,7 +180,7 @@ class PlannerIntentionDetailView(APIView):
                 )
             with transaction.atomic():
                 series = WorkIntentionSeries.objects.select_for_update().get(pk=record.series_id)
-                today = company_today()
+                today = company_today(employee.company)
                 series.occurrences.filter(date__gte=today).delete()
                 if series.starts_on >= today:
                     series.delete()

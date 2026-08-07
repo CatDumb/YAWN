@@ -19,6 +19,7 @@ from apps.work_logs.views import (
     ApprovalAssigneeView,
     ApprovalCountView,
     ApprovalDecisionView,
+    ApprovalDetailView,
     ApprovalOwnershipQueueView,
     ApprovalQueueView,
     ApprovalTimelineView,
@@ -54,6 +55,7 @@ urlpatterns = [
     ),
     path("approvals/assignees/", ApprovalAssigneeView.as_view(), name="approval-assignees"),
     path("approvals/count/", ApprovalCountView.as_view(), name="approval-count"),
+    path("approvals/<int:pk>/", ApprovalDetailView.as_view(), name="approval-detail"),
     path(
         "approvals/ownership/",
         ApprovalOwnershipQueueView.as_view(),

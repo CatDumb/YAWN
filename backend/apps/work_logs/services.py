@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.html import strip_tags
 
 from apps.accounts.models import Company, CompanyMembership, ManagerAssignment, User
 from apps.audit.models import AuditEvent
@@ -22,6 +23,7 @@ from apps.work_logs.models import (
     RemoteWorkException,
     WioTransitionBaseline,
     WorkInOfficeRecord,
+    _allow_final_period_mutation,
 )
 
 
@@ -38,6 +40,96 @@ def company_today(company=None):
     if company:
         return company_date(now, company)
     return now.astimezone(ZoneInfo(settings.TIME_ZONE)).date()
+
+
+def _validated_audit_reason(reason):
+    reason = reason.strip() if isinstance(reason, str) else ""
+    if not reason:
+        raise ValidationError("An audit reason is required.")
+    if len(reason) > 500:
+        raise ValidationError("Audit reason cannot exceed 500 characters.")
+    if strip_tags(reason) != reason:
+        raise ValidationError("Audit reason must be plain text.")
+    return reason
+
+
+@transaction.atomic
+def reopen_fiscal_periods(*, period_ids, actor, reason):
+    """Reopen final periods through one authorized, reasoned, audited boundary."""
+    reason = _validated_audit_reason(reason)
+    if not getattr(actor, "pk", None) or not getattr(actor, "is_active", False):
+        raise ValidationError("An active actor is required to reopen a fiscal period.")
+
+    period_ids = list(dict.fromkeys(period_ids))
+    if not period_ids:
+        return []
+    company_ids = list(
+        FiscalPeriod.objects.filter(pk__in=period_ids)
+        .order_by("company_id")
+        .values_list("company_id", flat=True)
+        .distinct()
+    )
+    companies = {
+        company.pk: company
+        for company in Company.objects.select_for_update()
+        .filter(pk__in=company_ids)
+        .order_by("pk")
+    }
+    periods = list(
+        FiscalPeriod.objects.select_for_update()
+        .filter(pk__in=period_ids)
+        .order_by("company_id", "pk")
+    )
+    if len(periods) != len(period_ids):
+        raise ValidationError("A selected fiscal period no longer exists.")
+    if any(period.company_id not in companies for period in periods):
+        raise RuntimeError("Fiscal period changed while acquiring its company lock.")
+
+    memberships = {
+        membership.company_id: membership
+        for membership in CompanyMembership.objects.select_for_update().filter(
+            user=actor,
+            company_id__in=company_ids,
+            is_active=True,
+        )
+    }
+    if not actor.is_superuser:
+        unauthorized = any(
+            not companies[period.company_id].is_active
+            or period.company_id not in memberships
+            or memberships[period.company_id].role != CompanyMembership.Role.HR_ADMIN
+            for period in periods
+        )
+        if unauthorized:
+            raise ValidationError("Only an active HR admin or superuser can reopen this period.")
+
+    reopened = []
+    for period in periods:
+        if period.state != FiscalPeriod.State.FINAL:
+            continue
+        previous_state = period.state
+        period.state = FiscalPeriod.State.RECONCILIATION
+        period.reopened_at = current_time()
+        period.reopened_by = actor
+        with _allow_final_period_mutation():
+            period.save(update_fields=["state", "reopened_at", "reopened_by", "updated_at"])
+        period.finalization_steps.update(completed_at=None, effect_token=None, metadata={})
+        membership = memberships.get(period.company_id)
+        AuditEvent.objects.create(
+            actor=actor,
+            event_type="work_logs.period_reopened",
+            target_type="work_logs.FiscalPeriod",
+            target_id=str(period.pk),
+            metadata={
+                "reason": reason,
+                "actor_role": membership.role if membership else "superuser",
+                "actor_company_id": period.company_id,
+                "from_state": previous_state,
+                "to_state": period.state,
+            },
+        )
+        reopened.append(period)
+    return reopened
 
 
 def _assignment_status(employee, on_date):

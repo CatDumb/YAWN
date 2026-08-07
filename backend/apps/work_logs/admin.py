@@ -9,7 +9,7 @@ from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.utils.html import strip_tags
 
-from apps.accounts.models import Company, CompanyMembership
+from apps.accounts.models import CompanyMembership
 from apps.audit.models import AuditEvent
 from apps.work_logs.models import (
     ApprovedLeave,
@@ -32,6 +32,7 @@ from apps.work_logs.services import (
     eligibility_reason,
     lock_wio_period,
     locked_hr_mutation_scope,
+    reopen_fiscal_periods,
     reverse_approved_record,
     save_record,
     save_transition_baseline,
@@ -156,6 +157,20 @@ class FiscalPeriodAdmin(AuditedAdmin):
     list_display = ("name", "company", "start_date", "end_date", "reconciliation_cutoff", "state")
     list_filter = ("company", "state")
     actions = ("clone_selected_period", "reopen_for_correction")
+    readonly_fields = ("reopened_at", "reopened_by")
+    final_readonly_fields = (
+        "company",
+        "start_date",
+        "end_date",
+        "reconciliation_cutoff",
+        "state",
+    )
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly_fields = super().get_readonly_fields(request, obj)
+        if obj and obj.state == FiscalPeriod.State.FINAL:
+            return (*readonly_fields, *self.final_readonly_fields)
+        return readonly_fields
 
     def get_changeform_initial_data(self, request):
         initial = super().get_changeform_initial_data(request)
@@ -199,48 +214,11 @@ class FiscalPeriodAdmin(AuditedAdmin):
         if response:
             return response
         period_ids = list(queryset.values_list("pk", flat=True))
-        company_ids = (
-            FiscalPeriod.objects.filter(pk__in=period_ids)
-            .order_by("company_id")
-            .values_list("company_id", flat=True)
-            .distinct()
+        reopen_fiscal_periods(
+            period_ids=period_ids,
+            actor=request.user,
+            reason=reason,
         )
-        list(Company.objects.select_for_update().filter(pk__in=company_ids).order_by("pk"))
-        periods = (
-            FiscalPeriod.objects.select_for_update()
-            .filter(pk__in=period_ids, state=FiscalPeriod.State.FINAL)
-            .order_by("company_id", "pk")
-        )
-        for period in periods:
-            membership = CompanyMembership.objects.filter(
-                user=request.user,
-                company=period.company,
-                is_active=True,
-            ).first()
-            previous_state = period.state
-            period.state = FiscalPeriod.State.RECONCILIATION
-            period.reopened_at = current_time()
-            period.reopened_by = request.user
-            period.save(update_fields=["state", "reopened_at", "reopened_by", "updated_at"])
-            AuditEvent.objects.create(
-                actor=request.user,
-                event_type="work_logs.period_reopened",
-                target_type="work_logs.FiscalPeriod",
-                target_id=str(period.pk),
-                metadata={
-                    "reason": reason,
-                    "actor_role": (
-                        membership.role
-                        if membership
-                        else "superuser"
-                        if request.user.is_superuser
-                        else "system"
-                    ),
-                    "actor_company_id": period.company_id,
-                    "from_state": previous_state,
-                    "to_state": period.state,
-                },
-            )
 
 
 @admin.register(ProjectStatusRule)

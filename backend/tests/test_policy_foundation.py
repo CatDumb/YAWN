@@ -10,6 +10,7 @@ from django.core.exceptions import ValidationError
 from django.db import connection
 from django.test import RequestFactory, override_settings
 from django.test.utils import CaptureQueriesContext
+from django.urls import reverse
 from django.utils import timezone
 
 from apps.accounts.models import Company, CompanyMembership, ManagerAssignment, User
@@ -534,6 +535,93 @@ def test_work_log_admin_is_scoped_to_hr_company(policy_employee):
     )
 
 
+def test_final_period_admin_change_post_cannot_bypass_audited_reopen(
+    policy_employee,
+    client,
+):
+    superuser = User.objects.create_superuser(
+        email="final-period-admin@example.com",
+        password="secret",
+    )
+    period = FiscalPeriod.objects.create(
+        company=policy_employee.company,
+        name="Final FY26",
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 12, 31),
+        reconciliation_cutoff=timezone.make_aware(
+            datetime(2027, 1, 14, 23, 59, 59, 999999)
+        ),
+        state=FiscalPeriod.State.FINAL,
+    )
+    original = {
+        "company_id": period.company_id,
+        "start_date": period.start_date,
+        "end_date": period.end_date,
+        "reconciliation_cutoff": period.reconciliation_cutoff,
+        "state": period.state,
+    }
+    other_company = Company.objects.create(name="Other Final Co", slug="other-final-co")
+    client.force_login(superuser)
+
+    response = client.post(
+        reverse("admin:work_logs_fiscalperiod_change", args=[period.pk]),
+        {
+            "company": other_company.pk,
+            "name": period.name,
+            "start_date": "2025-01-01",
+            "end_date": "2025-12-31",
+            "reconciliation_cutoff_0": "2026-01-14",
+            "reconciliation_cutoff_1": "23:59:59",
+            "state": FiscalPeriod.State.RECONCILIATION,
+            "_save": "Save",
+        },
+    )
+
+    assert response.status_code == 302
+    period.refresh_from_db()
+    assert {
+        "company_id": period.company_id,
+        "start_date": period.start_date,
+        "end_date": period.end_date,
+        "reconciliation_cutoff": period.reconciliation_cutoff,
+        "state": period.state,
+    } == original
+    assert not AuditEvent.objects.filter(
+        event_type="work_logs.period_reopened",
+        target_id=str(period.pk),
+    ).exists()
+
+
+def test_final_period_model_rejects_boundary_and_state_mutation(policy_employee):
+    period = FiscalPeriod.objects.create(
+        company=policy_employee.company,
+        name="Immutable FY26",
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 12, 31),
+        reconciliation_cutoff=timezone.make_aware(
+            datetime(2027, 1, 14, 23, 59, 59, 999999)
+        ),
+        state=FiscalPeriod.State.FINAL,
+    )
+    other_company = Company.objects.create(name="Other Immutable Co", slug="other-immutable-co")
+    attempts = (
+        ("company", other_company),
+        ("start_date", date(2025, 1, 1)),
+        ("end_date", date(2027, 12, 31)),
+        (
+            "reconciliation_cutoff",
+            timezone.make_aware(datetime(2027, 1, 15, 23, 59, 59, 999999)),
+        ),
+        ("state", FiscalPeriod.State.RECONCILIATION),
+    )
+
+    for field, value in attempts:
+        candidate = FiscalPeriod.objects.get(pk=period.pk)
+        setattr(candidate, field, value)
+        with pytest.raises(ValidationError, match="Final fiscal period"):
+            candidate.save()
+
+
 def test_policy_admin_delete_is_audited(policy_employee):
     hr = User.objects.create_user(email="delete-auditor@example.com", is_staff=True)
     CompanyMembership.objects.create(
@@ -800,7 +888,7 @@ def test_wio_admin_actions_collect_reason_and_reverse_approval(policy_employee):
         name="Reverse period",
         start_date=date(2026, 1, 1),
         end_date=date(2026, 7, 29),
-        reconciliation_cutoff=timezone.now() + timedelta(days=2),
+        reconciliation_cutoff=timezone.make_aware(datetime(2026, 8, 1, 23, 59, 59)),
         state=FiscalPeriod.State.RECONCILIATION,
     )
     record = WorkInOfficeRecord.objects.create(

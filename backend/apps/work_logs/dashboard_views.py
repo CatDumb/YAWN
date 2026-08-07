@@ -98,7 +98,7 @@ class DashboardTodayView(APIView):
     @extend_schema(responses=OpenApiTypes.OBJECT)
     def get(self, request):
         employee = membership_for(request.user)
-        today = company_today()
+        today = company_today(employee.company)
         record = WorkInOfficeRecord.objects.filter(employee=employee, work_date=today).first()
         attention = WorkInOfficeRecord.objects.filter(
             employee=employee,
@@ -125,7 +125,7 @@ class DashboardRatioView(APIView):
     @extend_schema(responses=OpenApiTypes.OBJECT)
     def get(self, request):
         employee = membership_for(request.user)
-        today = company_today()
+        today = company_today(employee.company)
         period = FiscalPeriod.objects.filter(
             company=employee.company, start_date__lte=today, end_date__gte=today
         ).first()
@@ -206,7 +206,7 @@ class DashboardActivityView(APIView):
     @extend_schema(responses=OpenApiTypes.OBJECT)
     def get(self, request):
         employee = membership_for(request.user)
-        today = company_today()
+        today = company_today(employee.company)
         try:
             year = int(request.query_params.get("year", today.year))
             month = int(request.query_params.get("month", today.month))
@@ -244,7 +244,7 @@ class DashboardHeatmapView(APIView):
     @extend_schema(responses=OpenApiTypes.OBJECT)
     def get(self, request):
         employee = membership_for(request.user)
-        today = company_today()
+        today = company_today(employee.company)
         try:
             year = int(request.query_params.get("year", today.year))
             month = int(request.query_params.get("month", today.month))

@@ -6,13 +6,26 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.audit.models import AuditEvent
-from apps.work_logs.models import WorkInOfficeRecord
+from apps.work_logs.models import WorkInOfficeRecord, WorkIntentionSeries
 
 
 def validate_plain_text_note(value):
     if strip_tags(value) != value:
         raise serializers.ValidationError("Note must be plain text.")
     return value
+
+
+class PlannerIntentionInputSerializer(serializers.Serializer):
+    start_date = serializers.DateField()
+    end_date = serializers.DateField(required=False)
+    location = serializers.ChoiceField(choices=WorkIntentionSeries.LocationChoice.choices)
+    commitment = serializers.ChoiceField(choices=WorkIntentionSeries.CommitmentChoice.choices)
+    note = serializers.CharField(required=False, allow_blank=True, default="", max_length=300)
+    weekdays = serializers.JSONField(required=False, allow_null=True, default=None)
+
+    def validate(self, attrs):
+        attrs["end_date"] = attrs.get("end_date", attrs["start_date"])
+        return attrs
 
 
 class TransitionBaselineInputSerializer(serializers.Serializer):
@@ -216,6 +229,7 @@ class ErrorDetailSerializer(serializers.Serializer):
 
 
 class ApprovalWorkInOfficeRecordSerializer(serializers.ModelSerializer):
+    version = serializers.IntegerField(read_only=True, min_value=0, max_value=2_147_483_647)
     employee_name = serializers.SerializerMethodField()
     employee_email = serializers.EmailField(source="employee.user.email", read_only=True)
     base_location_name = serializers.CharField(
@@ -246,6 +260,13 @@ class ApprovalWorkInOfficeRecordSerializer(serializers.ModelSerializer):
             "rejected_at",
             "correction_deadline",
         ]
+
+
+class ApprovalWorkInOfficeRecordDetailSerializer(ApprovalWorkInOfficeRecordSerializer):
+    note = serializers.CharField(read_only=True, allow_blank=True)
+
+    class Meta(ApprovalWorkInOfficeRecordSerializer.Meta):
+        fields = [*ApprovalWorkInOfficeRecordSerializer.Meta.fields, "note"]
 
 
 class AuditEventSerializer(serializers.ModelSerializer):
