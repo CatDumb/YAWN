@@ -1,10 +1,10 @@
-FROM node:24.17.0-alpine AS dependencies
+FROM node:26.7.0-alpine AS dependencies
 
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-FROM node:24.17.0-alpine AS builder
+FROM node:26.7.0-alpine AS builder
 
 WORKDIR /app
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
@@ -20,7 +20,7 @@ COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 
-FROM node:24.17.0-alpine AS runtime
+FROM node:26.7.0-alpine AS runtime
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
