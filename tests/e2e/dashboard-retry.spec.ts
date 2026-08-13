@@ -26,6 +26,15 @@ test("dashboard retry recovers without exposing AbortSignal errors", async ({
 
     if (url.includes("/api/v1/users/me/")) return fulfill(manager);
     if (url.includes("/api/v1/approvals/count/")) return fulfill({ count: 0 });
+    if (url.includes("/api/v1/transition-baseline/"))
+      return fulfill({
+        baseline: null,
+        eligible: false,
+        latest_cutoff_month: null,
+        lock_reason: null,
+      });
+    if (url.includes("/api/v1/work-in-office/meta/"))
+      return fulfill({ company_date: "2026-07-28" });
     if (url.includes("/api/v1/dashboard/today/")) {
       todayRequests += 1;
       if (todayRequests === 1)
@@ -54,6 +63,17 @@ test("dashboard retry recovers without exposing AbortSignal errors", async ({
         reconciliation_cutoff: null,
         remaining_eligible_days: 2,
         revision: null,
+      });
+    if (url.includes("/api/v1/planner/projection/"))
+      return fulfill({
+        expected_fraction_sum: "1",
+        firm_office_days: 1,
+        flexible_office_days: 0,
+        gap_after_maximum: "0",
+        maximum_planned_fraction: "1",
+        minimum_planned_fraction: "1",
+        period_name: "July 2026",
+        unplanned_eligible_days: 0,
       });
     if (url.includes("/api/v1/dashboard/activity/"))
       return fulfill({ intentions: [], records: [] });
