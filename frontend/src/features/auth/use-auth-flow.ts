@@ -1,8 +1,6 @@
 "use client";
 
-import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect, useState } from "react";
-import { useForm, useWatch } from "react-hook-form";
 import { useRouter } from "next/navigation";
 
 import {
@@ -10,15 +8,10 @@ import {
   requestOtp as requestOtpCall,
   responseDetail,
   submitAccessRequest as submitAccessRequestCall,
+  type AccessRequestValues,
   verifyOtp as verifyOtpCall,
 } from "./api";
 import { isCurrentUser } from "./contracts";
-import {
-  accessRequestSchema,
-  loginSchema,
-  type AccessRequestValues,
-  type LoginValues,
-} from "./schemas";
 
 export type AuthView = "access-request" | "access-confirmed" | "login";
 
@@ -27,10 +20,6 @@ export const GENERIC_OTP_MESSAGE =
   "If your account is eligible, a sign-in code has been sent.";
 export const OTP_LENGTH = 6;
 export const OTP_RESEND_SECONDS = 60;
-
-export function isInvalidSessionStatus(status: number) {
-  return status === 401 || status === 403;
-}
 
 export function useAuthFlow() {
   const router = useRouter();
@@ -53,30 +42,20 @@ export function useAuthFlow() {
     return () => window.clearInterval(timer);
   }, [resendSecondsRemaining]);
 
-  const accessRequestForm = useForm<AccessRequestValues>({
-    resolver: zodResolver(accessRequestSchema),
-  });
-  const loginForm = useForm<LoginValues>({
-    resolver: zodResolver(loginSchema),
-  });
-  const accessRequestEmailInput = useWatch({
-    control: accessRequestForm.control,
-    name: "email",
-  });
-  const accessRequestFirstNameInput = useWatch({
-    control: accessRequestForm.control,
-    name: "first_name",
-  });
-  const accessRequestLastNameInput = useWatch({
-    control: accessRequestForm.control,
-    name: "last_name",
-  });
-  const loginEmailInput = useWatch({
-    control: loginForm.control,
-    name: "email",
-  });
-
-  async function submitAccessRequest(values: AccessRequestValues) {
+  async function submitAccessRequest(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const values: AccessRequestValues = {
+      email: String(data.get("email") ?? "").trim(),
+      first_name: String(data.get("first_name") ?? "").trim(),
+      last_name: String(data.get("last_name") ?? "").trim(),
+    };
+    if (
+      !event.currentTarget.checkValidity() ||
+      [values.first_name, values.last_name].some((name) => name.length > 150)
+    ) {
+      return;
+    }
     setError(null);
     setNotice(null);
     setIsSubmitting(true);
@@ -137,8 +116,12 @@ export function useAuthFlow() {
     }
   }
 
-  async function requestOtp(values: LoginValues) {
-    await requestOtpForEmail(normalizeEmail(values.email));
+  async function requestOtp(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const email = String(
+      new FormData(event.currentTarget).get("email") ?? "",
+    ).trim();
+    await requestOtpForEmail(normalizeEmail(email));
   }
 
   async function resendOtp() {
@@ -213,18 +196,12 @@ export function useAuthFlow() {
 
   return {
     accessRequest: {
-      emailInput: accessRequestEmailInput,
-      firstNameInput: accessRequestFirstNameInput,
-      form: accessRequestForm,
-      lastNameInput: accessRequestLastNameInput,
       submit: submitAccessRequest,
     },
     error,
     isSubmitting,
     login: {
       email: loginEmail,
-      emailInput: loginEmailInput,
-      form: loginForm,
       otpCode,
       otpError,
       otpRequested,

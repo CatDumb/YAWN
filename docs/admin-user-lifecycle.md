@@ -5,6 +5,7 @@ need staff access and active HR/admin membership; superusers retain full access.
 
 ## Actors
 
+- Anonymous visitor: can open the Django Admin login page but has no admin model permissions.
 - Superuser: unrestricted Django Admin operator.
 - HR/admin staff member: active HR/admin membership plus staff access.
 - User: person whose request or account changes.
@@ -52,6 +53,8 @@ need staff access and active HR/admin membership; superusers retain full access.
 
 ## Failure paths
 
+- Anonymous visitors can render the Django Admin login page, but cannot see admin apps or trigger
+  company-membership lookups before authentication.
 - Non-superuser without active staff HR/admin authority cannot see or review access requests.
 - Unauthorized Django Admin user cannot run lifecycle actions or edit around auditing.
 - Approval for existing disabled user does not re-enable user.
@@ -74,6 +77,7 @@ need staff access and active HR/admin membership; superusers retain full access.
 
 ## Security rules
 
+- Reject unauthenticated users before running company-scoped membership queries.
 - Limit review visibility and actions to superusers or active staff HR/admin members.
 - Use transaction and row locking for approval to prevent duplicate users or memberships.
 - Remove direct `is_active` editing from User admin forms; actions ensure audit coverage.

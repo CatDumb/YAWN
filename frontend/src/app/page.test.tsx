@@ -29,10 +29,10 @@ function renderAnonymousHome() {
 
 async function fillAccessRequest() {
   fireEvent.change(screen.getByLabelText("First name"), {
-    target: { value: "Ada" },
+    target: { value: " Ada " },
   });
   fireEvent.change(screen.getByLabelText("Last name"), {
-    target: { value: "Lovelace" },
+    target: { value: " Lovelace " },
   });
   fireEvent.change(screen.getByLabelText("Email"), {
     target: { value: "ADA@EXAMPLE.COM" },
@@ -50,10 +50,11 @@ describe("Home", () => {
     vi.clearAllMocks();
   });
 
-  it("starts with validated access request and generic confirmation", async () => {
+  it("starts with native-validated access request and generic confirmation", async () => {
     renderAnonymousHome();
 
     fireEvent.click(screen.getByRole("button", { name: "Request access" }));
+    expect(apiFetch).not.toHaveBeenCalled();
 
     apiFetch.mockResolvedValueOnce(jsonResponse({ detail: "ignored" }, 202));
     await fillAccessRequest();
@@ -72,25 +73,27 @@ describe("Home", () => {
     });
   });
 
-  it("shows required-field recovery after an empty access-request submit", async () => {
+  it("uses native constraints to block invalid access requests", () => {
     renderAnonymousHome();
     const firstName = screen.getByLabelText("First name");
+    const lastName = screen.getByLabelText("Last name");
+    const email = screen.getByLabelText("Email");
 
     fireEvent.click(screen.getByRole("button", { name: "Request access" }));
-    expect(
-      await screen.findByText("Check the highlighted fields and try again."),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Enter your first name.")).toBeInTheDocument();
-    expect(screen.getByText("Enter your last name.")).toBeInTheDocument();
-    expect(
-      screen.getByText("Enter a valid email address."),
-    ).toBeInTheDocument();
-    expect(firstName).toHaveAttribute(
-      "aria-describedby",
-      "access-request-first-name-error",
+    expect(apiFetch).not.toHaveBeenCalled();
+    expect(firstName).toBeInvalid();
+
+    fireEvent.change(firstName, { target: { value: "   " } });
+    fireEvent.change(lastName, { target: { value: "Lovelace" } });
+    fireEvent.change(email, { target: { value: "ada@example.com" } });
+    expect(firstName).toBeInvalid();
+
+    fireEvent.change(firstName, { target: { value: "A".repeat(151) } });
+    expect(firstName).toHaveAttribute("maxlength", "150");
+    fireEvent.submit(
+      screen.getByRole("button", { name: "Request access" }).closest("form")!,
     );
-    expect(firstName).toHaveAttribute("aria-invalid", "true");
-    expect(firstName).toHaveFocus();
+    expect(apiFetch).not.toHaveBeenCalled();
   });
 
   it("moves approved user through OTP sign-in and navigates to dashboard", async () => {
@@ -201,7 +204,7 @@ describe("Home", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("hides the sign-in email validation message after the email is cleared", async () => {
+  it("uses native email validation before requesting an OTP", () => {
     renderAnonymousHome();
     fireEvent.click(
       screen.getByRole("button", { name: "Already approved? Sign in" }),
@@ -209,16 +212,10 @@ describe("Home", () => {
 
     const email = screen.getByRole("textbox", { name: "Email" });
     fireEvent.change(email, { target: { value: "not-an-email" } });
-    fireEvent.submit(
-      screen.getByRole("button", { name: "Send code" }).closest("form")!,
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Send code" }));
 
-    expect(
-      await screen.findByText("Enter a valid email address."),
-    ).toBeInTheDocument();
-    expect(email).toHaveAttribute("aria-describedby", "sign-in-email-error");
-    expect(email).toHaveAttribute("aria-invalid", "true");
-    expect(email).toHaveFocus();
+    expect(apiFetch).not.toHaveBeenCalled();
+    expect(email).toBeInvalid();
   });
 
   it("keeps access request available after API outage", async () => {

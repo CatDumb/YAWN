@@ -1,11 +1,12 @@
+FROM ghcr.io/astral-sh/uv:0.11.28 AS uv
+
 FROM python:3.12-slim AS builder
 
-ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_CACHE_DIR=1
+COPY --from=uv /uv /uvx /bin/
 
-WORKDIR /build
-COPY requirements.txt .
-RUN python -m pip install --prefix=/install --require-hashes -r requirements.txt
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-dev --no-install-project
 
 FROM python:3.12-slim AS runtime
 
@@ -14,12 +15,12 @@ ARG DEPLOYMENT_VERSION=development
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DEPLOYMENT_VERSION=$DEPLOYMENT_VERSION \
-    PATH=/home/wio/.local/bin:$PATH
+    PATH=/app/.venv/bin:$PATH
 
 RUN addgroup --system wio && adduser --system --ingroup wio --home /home/wio wio
 
 WORKDIR /app
-COPY --from=builder /install /usr/local
+COPY --from=builder --chown=wio:wio /app/.venv .venv
 COPY --chown=wio:wio . .
 
 RUN DJANGO_SETTINGS_MODULE=config.settings.test python manage.py collectstatic --noinput

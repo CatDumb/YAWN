@@ -7,6 +7,7 @@ from apps.accounts.views import (
     LogoutView,
     OTPRequestView,
     OTPVerifyView,
+    UserPreferenceView,
 )
 
 app_name = "accounts"
@@ -18,4 +19,5 @@ urlpatterns = [
     path("auth/otp/verify/", OTPVerifyView.as_view(), name="otp-verify"),
     path("auth/logout/", LogoutView.as_view(), name="logout"),
     path("users/me/", CurrentUserView.as_view(), name="current-user"),
+    path("preferences/", UserPreferenceView.as_view(), name="preferences"),
 ]

@@ -1,10 +1,27 @@
 import uuid
+from datetime import date
+from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import connections, models, router, transaction
 from django.db.models import Q
+from django.utils import timezone
+
+_SINGLE_ACTIVE_COMPANY_LOCK_ID = 8_044_659_113_421_991_253
+
+
+def lock_single_active_company(connection):
+    """Serialize the production-only singleton check, including the empty table."""
+    if connection.vendor != "postgresql":
+        return
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(%s)",
+            [_SINGLE_ACTIVE_COMPANY_LOCK_ID],
+        )
 
 
 class UserManager(BaseUserManager):
@@ -54,7 +71,20 @@ class Company(models.Model):
 
     def save(self, *args, **kwargs):
         self.email_domain = self.email_domain.strip().lower()
-        super().save(*args, **kwargs)
+        if settings.WIO_ENFORCE_SINGLE_COMPANY and self.is_active:
+            database = kwargs.get("using") or router.db_for_write(type(self), instance=self)
+            with transaction.atomic(using=database):
+                lock_single_active_company(connections[database])
+                if (
+                    type(self)
+                    .objects.using(database)
+                    .exclude(pk=self.pk)
+                    .filter(is_active=True)
+                    .exists()
+                ):
+                    raise ValidationError("Only one active company is supported.")
+                return super().save(*args, **kwargs)
+        return super().save(*args, **kwargs)
 
 
 class User(AbstractUser):
@@ -87,6 +117,13 @@ class CompanyMembership(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="memberships")
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="memberships")
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.EMPLOYEE)
+    base_location = models.ForeignKey(
+        "work_logs.BaseLocation",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="memberships",
+    )
     is_active = models.BooleanField(default=True)
     joined_at = models.DateTimeField(auto_now_add=True)
 
@@ -101,6 +138,30 @@ class CompanyMembership(models.Model):
     def __str__(self):
         return f"{self.user.email} at {self.company.name}"
 
+    def save(self, *args, **kwargs):
+        with transaction.atomic():
+            User.objects.select_for_update().get(pk=self.user_id)
+            self.full_clean()
+            super().save(*args, **kwargs)
+
+    def clean(self):
+        super().clean()
+        if (
+            settings.WIO_ENFORCE_SINGLE_COMPANY
+            and self.is_active
+            and self.company_id
+            and self.company.is_active
+        ):
+            ambiguous = (
+                CompanyMembership.objects.filter(
+                    user=self.user, is_active=True, company__is_active=True
+                )
+                .exclude(pk=self.pk)
+                .exists()
+            )
+            if ambiguous:
+                raise ValidationError("A user can have only one active company membership.")
+
 
 class ManagerAssignment(models.Model):
     manager = models.ForeignKey(
@@ -114,29 +175,71 @@ class ManagerAssignment(models.Model):
         related_name="manager_assignments",
     )
     is_active = models.BooleanField(default=True)
+    effective_from = models.DateField()
+    effective_to = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["manager", "employee"],
-                name="accounts_manager_employee_unique",
-            )
-        ]
 
     def __str__(self):
         return f"{self.manager.user.email} manages {self.employee.user.email}"
 
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        if self.employee_id:
+            CompanyMembership.objects.select_for_update().get(pk=self.employee_id)
+        self.full_clean()
+        super().save(*args, **kwargs)
+
     def clean(self):
+        super().clean()
+        if self.pk and self.employee_id:
+            original = ManagerAssignment.objects.filter(pk=self.pk).first()
+            if original:
+                today = timezone.now().astimezone(ZoneInfo(self.employee.company.timezone)).date()
+                if original.effective_from <= today:
+                    changed = any(
+                        getattr(original, field) != getattr(self, field)
+                        for field in (
+                            "manager_id",
+                            "employee_id",
+                            "is_active",
+                            "effective_from",
+                        )
+                    )
+                    end_changed = original.effective_to != self.effective_to
+                    unsafe_end_change = end_changed and (
+                        (original.effective_to is not None and original.effective_to < today)
+                        or self.effective_to is None
+                        or self.effective_to < today
+                    )
+                    if changed or unsafe_end_change:
+                        raise ValidationError(
+                            "Started manager assignments are immutable; append a "
+                            "future-dated correction."
+                        )
         if self.manager_id == self.employee_id:
             raise ValidationError("Manager and employee must be different memberships.")
         if self.manager.company_id != self.employee.company_id:
             raise ValidationError("Manager and employee must belong to the same company.")
-        if self.manager.role not in {
-            CompanyMembership.Role.MANAGER,
-            CompanyMembership.Role.HR_ADMIN,
-        }:
-            raise ValidationError("Manager membership must have manager or HR/admin role.")
+        if self.manager.role != CompanyMembership.Role.MANAGER:
+            raise ValidationError("Manager membership must have manager role.")
+        if self.effective_to and self.effective_to < self.effective_from:
+            raise ValidationError("End date cannot be before start date.")
+        overlaps = (
+            ManagerAssignment.objects.filter(employee=self.employee, is_active=True)
+            .exclude(pk=self.pk)
+            .filter(effective_from__lte=self.effective_to or date.max)
+            .filter(Q(effective_to__isnull=True) | Q(effective_to__gte=self.effective_from))
+        )
+        if self.is_active and overlaps.exists():
+            raise ValidationError("Manager assignments cannot overlap.")
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        CompanyMembership.objects.select_for_update().get(pk=self.employee_id)
+        today = timezone.now().astimezone(ZoneInfo(self.employee.company.timezone)).date()
+        if self.effective_from <= today:
+            raise ValidationError("Started manager assignments cannot be deleted.")
+        return super().delete(*args, **kwargs)
 
 
 class AccessRequest(models.Model):
@@ -217,3 +320,32 @@ class EmailOTPChallenge(models.Model):
 
     def __str__(self):
         return f"OTP challenge {self.pk}"
+
+
+class UserPreference(models.Model):
+    class Theme(models.TextChoices):
+        SYSTEM = "system", "System"
+        LIGHT = "light", "Light"
+        DARK = "dark", "Dark"
+
+    class Language(models.TextChoices):
+        ENGLISH = "en", "English"
+        VIETNAMESE = "vi", "Vietnamese"
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="preference")
+    theme = models.CharField(max_length=10, choices=Theme.choices, default=Theme.SYSTEM)
+    language = models.CharField(max_length=5, choices=Language.choices, default=Language.ENGLISH)
+    reduced_motion = models.BooleanField(default=False)
+    planner_location = models.CharField(max_length=12, blank=True)
+    planner_commitment = models.CharField(max_length=12, blank=True)
+    week_start = models.PositiveSmallIntegerField(default=1)
+    display_name = models.CharField(max_length=150, blank=True)
+    version = models.PositiveIntegerField(default=1)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Preferences for {self.user.email}"
+
+    def clean(self):
+        if self.week_start not in {0, 1}:
+            raise ValidationError("Week start must be Sunday or Monday.")

@@ -18,7 +18,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.models import AccessRequest, Company, EmailOTPChallenge, User
+from apps.accounts.models import AccessRequest, Company, EmailOTPChallenge, User, UserPreference
 from apps.accounts.serializers import (
     AccessRequestResponseSerializer,
     AccessRequestSerializer,
@@ -26,6 +26,7 @@ from apps.accounts.serializers import (
     OTPRequestResponseSerializer,
     OTPRequestSerializer,
     OTPVerifySerializer,
+    UserPreferenceSerializer,
 )
 from apps.accounts.services import schedule_otp_email_delivery
 from apps.audit.models import AuditEvent
@@ -54,7 +55,7 @@ def _signup_fingerprint(request):
 
 
 def _eligible_user(email):
-    return (
+    user = (
         User.objects.filter(
             email__iexact=email,
             is_active=True,
@@ -64,15 +65,13 @@ def _eligible_user(email):
         .distinct()
         .first()
     )
-
-
-def _rate_limit_keys(email, fingerprint):
-    return sorted(
-        {
-            salted_hmac("wio.otp.request.email", email).hexdigest(),
-            salted_hmac("wio.otp.request.fingerprint", fingerprint).hexdigest(),
-        }
-    )
+    if user is None:
+        return None
+    active_scope_count = user.memberships.filter(
+        is_active=True,
+        company__is_active=True,
+    ).count()
+    return user if active_scope_count == 1 else None
 
 
 def _lock_rate_limits(email, fingerprint):
@@ -80,7 +79,12 @@ def _lock_rate_limits(email, fingerprint):
         return
 
     with connection.cursor() as cursor:
-        for key in _rate_limit_keys(email, fingerprint):
+        for key in sorted(
+            {
+                salted_hmac("wio.otp.request.email", email).hexdigest(),
+                salted_hmac("wio.otp.request.fingerprint", fingerprint).hexdigest(),
+            }
+        ):
             lock_id = int(key[:16], 16)
             if lock_id >= 2**63:
                 lock_id -= 2**64
@@ -177,7 +181,8 @@ class OTPRequestView(APIView):
             >= settings.WIO_OTP_IP_REQUESTS_PER_HOUR
         )
         cooling_down = (
-            latest is not None
+            settings.WIO_OTP_RESEND_SECONDS > 0
+            and latest is not None
             and latest.consumed_at is None
             and latest.expires_at > now
             and latest.created_at >= resend_after
@@ -291,6 +296,67 @@ class LogoutView(APIView):
 
 
 class CurrentUserView(APIView):
-    @extend_schema(responses=CurrentUserSerializer)
+    @extend_schema(
+        responses={
+            200: CurrentUserSerializer,
+            409: inline_serializer(
+                name="AmbiguousCompanyScopeError",
+                fields={"detail": serializers.CharField()},
+            ),
+        }
+    )
     def get(self, request):
+        active_scope_count = request.user.memberships.filter(
+            is_active=True,
+            company__is_active=True,
+        ).count()
+        if active_scope_count != 1:
+            return Response(
+                {
+                    "detail": (
+                        "Active company scope is missing or ambiguous. "
+                        "Contact HR/admin to repair membership."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         return Response(CurrentUserSerializer(request.user).data)
+
+
+class UserPreferenceView(APIView):
+    @extend_schema(responses=UserPreferenceSerializer)
+    def get(self, request):
+        preference, _ = UserPreference.objects.get_or_create(user=request.user)
+        return Response(UserPreferenceSerializer(preference).data)
+
+    @extend_schema(request=UserPreferenceSerializer, responses=UserPreferenceSerializer)
+    def put(self, request):
+        preference, _ = UserPreference.objects.get_or_create(user=request.user)
+        submitted_version = request.data.get("version")
+        if submitted_version is None:
+            return Response(
+                {"detail": "Version is required for preferences."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if submitted_version != preference.version:
+            return Response(
+                {"detail": "Preferences changed. Reload latest state and retry."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        serializer = UserPreferenceSerializer(preference, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        updated = UserPreference.objects.filter(
+            pk=preference.pk,
+            version=submitted_version,
+        ).update(
+            **serializer.validated_data,
+            version=submitted_version + 1,
+            updated_at=timezone.now(),
+        )
+        if updated == 0:
+            return Response(
+                {"detail": "Preferences changed. Reload latest state and retry."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        preference.refresh_from_db()
+        return Response(UserPreferenceSerializer(preference).data)

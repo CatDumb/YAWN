@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .test import *  # noqa: F403
@@ -16,3 +17,4 @@ ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
 CORS_ALLOWED_ORIGINS = ["http://127.0.0.1:3100"]
 CSRF_TRUSTED_ORIGINS = ["http://127.0.0.1:3100"]
 WIO_APP_URL = "http://127.0.0.1:3100"
+WIO_FIXED_NOW = datetime(2026, 7, 29, 12, tzinfo=UTC)

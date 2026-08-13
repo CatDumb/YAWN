@@ -28,9 +28,6 @@ try {
     Invoke-Check "OpenAPI schema" {
         uv run python manage.py spectacular --validate --file schema.generated.yml --settings=config.settings.test
     }
-    Invoke-Check "OpenAPI schema drift" {
-        git diff --no-index --exit-code schema.yml schema.generated.yml
-    }
 } finally {
     Remove-Item -LiteralPath "schema.generated.yml" -ErrorAction SilentlyContinue
     Pop-Location

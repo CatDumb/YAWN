@@ -13,6 +13,12 @@ Set-Location ..\frontend
 npm test
 ```
 
+Run the focused Django Admin lifecycle suite from `backend`:
+
+```powershell
+uv run pytest tests/test_admin_lifecycle.py -p no:cacheprovider
+```
+
 CI also runs PostgreSQL migrations, schema validation, linting, type checks, frontend build, the
 real-browser auth contract, and Docker image builds.
 

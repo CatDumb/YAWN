@@ -38,8 +38,6 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "apps.accounts",
     "apps.work_logs",
-    "apps.office",
-    "apps.evidence",
     "apps.audit",
 ]
 
@@ -74,7 +72,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "config.wsgi.application"
-ASGI_APPLICATION = "config.asgi.application"
 
 DATABASES = {
     "default": env.db(
@@ -158,6 +155,7 @@ WIO_SIGNUP_FINGERPRINT_REQUESTS_PER_HOUR = env.int(
 )
 WIO_ALLOW_INSECURE_DEV_SEED = env.bool("WIO_ALLOW_INSECURE_DEV_SEED", default=False)
 WIO_TRUST_PROXY_HEADERS = env.bool("WIO_TRUST_PROXY_HEADERS", default=False)
+WIO_ENFORCE_SINGLE_COMPANY = env.bool("WIO_ENFORCE_SINGLE_COMPANY", default=False)
 
 # Sessions last a fixed 14 days. Activity does not extend this window.
 SESSION_COOKIE_AGE = 14 * 24 * 60 * 60

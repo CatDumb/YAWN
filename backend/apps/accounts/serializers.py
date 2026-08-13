@@ -1,6 +1,7 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from apps.accounts.models import User
+from apps.accounts.models import User, UserPreference
 
 
 class AccessRequestSerializer(serializers.Serializer):
@@ -10,16 +11,6 @@ class AccessRequestSerializer(serializers.Serializer):
 
     def validate_email(self, value):
         return value.strip().lower()
-
-    def validate_first_name(self, value):
-        if not value:
-            raise serializers.ValidationError("This field may not be blank.")
-        return value
-
-    def validate_last_name(self, value):
-        if not value:
-            raise serializers.ValidationError("This field may not be blank.")
-        return value
 
 
 class OTPRequestSerializer(serializers.Serializer):
@@ -50,8 +41,43 @@ class MembershipSerializer(serializers.Serializer):
 
 
 class CurrentUserSerializer(serializers.ModelSerializer):
-    memberships = MembershipSerializer(many=True, read_only=True)
+    memberships = serializers.SerializerMethodField()
+
+    @extend_schema_field(MembershipSerializer(many=True))
+    def get_memberships(self, obj):
+        memberships = obj.memberships.filter(
+            is_active=True, company__is_active=True
+        ).select_related("company")
+        return MembershipSerializer(memberships, many=True).data
 
     class Meta:
         model = User
         fields = ["id", "email", "first_name", "last_name", "memberships"]
+
+
+class UserPreferenceSerializer(serializers.ModelSerializer):
+    week_start = serializers.IntegerField(min_value=0, max_value=1)
+
+    def validate_planner_location(self, value):
+        if value not in {"", "office", "home"}:
+            raise serializers.ValidationError("Planner location must be Office or Home.")
+        return value
+
+    def validate_planner_commitment(self, value):
+        if value not in {"", "firm", "flexible"}:
+            raise serializers.ValidationError("Planner commitment must be Firm or Flexible.")
+        return value
+
+    class Meta:
+        model = UserPreference
+        fields = [
+            "theme",
+            "language",
+            "reduced_motion",
+            "planner_location",
+            "planner_commitment",
+            "week_start",
+            "display_name",
+            "version",
+        ]
+        read_only_fields = ["version"]

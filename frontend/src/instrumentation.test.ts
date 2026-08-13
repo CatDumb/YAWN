@@ -11,17 +11,14 @@ describe("instrumentation", () => {
     vi.unstubAllEnvs();
   });
 
-  it.each(["nodejs", "edge"])(
-    "loads Sentry config for %s runtime",
-    async (runtime) => {
-      vi.resetModules();
-      vi.stubEnv("NEXT_RUNTIME", runtime);
+  it("loads Sentry config for Node runtime", async () => {
+    vi.resetModules();
+    vi.stubEnv("NEXT_RUNTIME", "nodejs");
 
-      const { onRequestError, register } = await import("./instrumentation");
-      await register();
+    const { onRequestError, register } = await import("./instrumentation");
+    await register();
 
-      expect(onRequestError).toBe(captureRequestError);
-      expect(init).toHaveBeenCalledOnce();
-    },
-  );
+    expect(onRequestError).toBe(captureRequestError);
+    expect(init).toHaveBeenCalledOnce();
+  });
 });

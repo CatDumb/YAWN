@@ -8,7 +8,9 @@ Single-company web app for tracking daily work-in-office (WIO) activity, expecte
 
 Ratio formula:
 
-`actual approved office days / expected office days`
+`approved office days / expected office days`
+
+YAWN also exposes a separate self-submitted audit stream: submitted in-office claims divided by the same expected-day denominator. It is for later comparison with an official system; no external import or reconciliation is part of this scope.
 
 | Project status | Expected office ratio |
 |---|---:|
@@ -23,6 +25,7 @@ MVP calculation rules:
 - Eligible workdays are Monday through Friday, excluding configured public holidays, approved leave, and approved remote-work exceptions.
 - Each eligible date contributes its effective expected-office ratio. Sum daily fractions across the report range and round up once to a whole expected office day.
 - An approved whole-day office log contributes one actual office day. MVP has no half-day credit.
+- Pending, rejected, and expired in-office claims remain in the self-submitted audit stream but never add official Approved credit.
 - If expected office days are zero, compliance ratio displays `N/A` rather than dividing by zero.
 - Rule and project-status changes are effective-dated so mixed-status reporting ranges remain reproducible.
 
@@ -37,6 +40,7 @@ MVP calculation rules:
 - Peer endorsements provide audit signal only; they do not approve logs.
 - Admin-managed floor plans for 1–2 office floors and selectable seats.
 - Monthly dashboard and custom date-range reports.
+- Optional employee-entered transition baseline for moving legacy target and achieved WIO totals into the current fiscal period; local WIO begins after its completed-month cutoff.
 - Audit history for edits, approvals, rejections, endorsements, and evidence access.
 
 ## Delivery phases

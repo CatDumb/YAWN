@@ -3,7 +3,6 @@ import re
 from datetime import timedelta
 from importlib import import_module
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -14,8 +13,13 @@ from django.db import transaction
 from django.test import Client
 from django.utils import timezone
 
-from apps.accounts.models import Company, CompanyMembership, EmailOTPChallenge, User
-from apps.accounts.permissions import IsHRAdmin, IsManagerOrHRAdmin
+from apps.accounts.models import (
+    Company,
+    CompanyMembership,
+    EmailOTPChallenge,
+    User,
+    lock_single_active_company,
+)
 from apps.accounts.services import send_approval_email, send_otp_email
 from apps.accounts.views import _lock_rate_limits
 from apps.audit.models import AuditEvent
@@ -131,6 +135,59 @@ def test_authenticated_user_requires_active_membership(client):
     response = client.get("/api/v1/users/me/")
 
     assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_current_user_exposes_only_active_company_membership(client):
+    user = User.objects.create_user(email="membership-history@example.com")
+    historical_company = Company.objects.create(
+        name="Historical Company",
+        slug="historical-company",
+        is_active=False,
+    )
+    CompanyMembership.objects.create(
+        user=user,
+        company=historical_company,
+        role=CompanyMembership.Role.HR_ADMIN,
+        is_active=False,
+    )
+    active_company = Company.objects.create(name="Current Company", slug="current-company")
+    active_membership = CompanyMembership.objects.create(
+        user=user,
+        company=active_company,
+        role=CompanyMembership.Role.MANAGER,
+    )
+    client.force_login(user)
+
+    response = client.get("/api/v1/users/me/")
+
+    assert response.status_code == 200
+    assert response.json()["memberships"] == [
+        {
+            "company_id": active_company.pk,
+            "company": active_company.name,
+            "role": active_membership.role,
+        }
+    ]
+
+
+@pytest.mark.django_db
+def test_current_user_fails_closed_for_ambiguous_active_company_scope(client):
+    user = User.objects.create_user(email="ambiguous-scope@example.com")
+    first = Company.objects.create(name="First Company", slug="first-company")
+    second = Company.objects.create(name="Second Company", slug="second-company")
+    CompanyMembership.objects.create(user=user, company=first)
+    CompanyMembership.objects.create(user=user, company=second)
+    client.force_login(user)
+
+    response = client.get("/api/v1/users/me/")
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": (
+            "Active company scope is missing or ambiguous. Contact HR/admin to repair membership."
+        )
+    }
 
 
 @pytest.mark.django_db
@@ -447,25 +504,6 @@ def test_compose_bootstraps_configured_signup_company():
     assert "Company.objects.get_or_create(slug=slug" in compose
 
 
-@pytest.mark.django_db
-def test_company_role_permissions(active_user):
-    membership = active_user.memberships.get()
-    request = SimpleNamespace(user=active_user)
-
-    assert not IsManagerOrHRAdmin().has_permission(request, None)
-    assert not IsHRAdmin().has_permission(request, None)
-
-    membership.role = CompanyMembership.Role.MANAGER
-    membership.save(update_fields=["role"])
-    assert IsManagerOrHRAdmin().has_permission(request, None)
-    assert not IsHRAdmin().has_permission(request, None)
-
-    membership.role = CompanyMembership.Role.HR_ADMIN
-    membership.save(update_fields=["role"])
-    assert IsManagerOrHRAdmin().has_permission(request, None)
-    assert IsHRAdmin().has_permission(request, None)
-
-
 def test_purge_expired_otps_rejects_negative_retention():
     with pytest.raises(CommandError, match="--hours must be zero or greater"):
         call_command("purge_expired_otps", hours=-1)
@@ -483,3 +521,14 @@ def test_rate_locks_use_postgresql_transaction_advisory_locks(monkeypatch):
     assert all(
         call.args[0] == "SELECT pg_advisory_xact_lock(%s)" for call in cursor.execute.call_args_list
     )
+
+
+def test_single_active_company_uses_postgresql_transaction_advisory_lock():
+    connection = MagicMock()
+    connection.vendor = "postgresql"
+    cursor = connection.cursor.return_value.__enter__.return_value
+
+    lock_single_active_company(connection)
+
+    cursor.execute.assert_called_once()
+    assert cursor.execute.call_args.args[0] == "SELECT pg_advisory_xact_lock(%s)"

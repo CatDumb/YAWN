@@ -51,6 +51,17 @@ def test_sign_up_coalesces_duplicate_pending_request_without_enumeration(client,
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("field", ["first_name", "last_name"])
+@pytest.mark.parametrize("value", ["", "   "])
+def test_sign_up_rejects_blank_names(client, signup_company, field, value):
+    response = sign_up(client, **{field: value})
+
+    assert response.status_code == 400
+    assert field in response.json()
+    assert not AccessRequest.objects.exists()
+
+
+@pytest.mark.django_db
 def test_sign_up_email_rate_limit_has_generic_response(client, settings, signup_company):
     settings.WIO_SIGNUP_REQUESTS_PER_HOUR = 1
     AccessRequest.objects.create(

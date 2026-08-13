@@ -8,7 +8,7 @@ Next.js App Router frontend for YAWN.
 - Email OTP login, session restore, logout, and authenticated identity placeholder
 - Phase 3 onward: work logs, approvals, dashboards, evidence, and seat selection
 
-The frontend will use TypeScript, Tailwind CSS, daisyUI, React Hook Form, and Zod as described in [TECHSTACK.md](../TECHSTACK.md).
+The frontend uses TypeScript, Tailwind CSS, daisyUI, and native HTML form constraints. Client checks guide users, but Django remains authoritative for validation and authorization.
 
 ## Setup
 
@@ -32,4 +32,11 @@ Frontend uses credentialed requests to Django. Shared API helper gets a CSRF tok
 
 Tailwind CSS 4 and daisyUI 5 are configured in `src/app/globals.css`. UI must use daisyUI components and semantic colors before custom CSS.
 
-Sentry captures unhandled browser, server, and edge exceptions when DSN variables are configured. Personal data collection remains disabled.
+Sentry captures unhandled browser and server exceptions when DSN variables are configured. Personal data collection remains disabled.
+
+## Error handling and retry contract
+
+- Retry UI receives zero-argument callbacks. `AbortSignal` belongs only to request lifecycle code, never to UI event handlers.
+- Structured 4xx API `detail` messages may be shown through `ApiError`. 5xx, malformed-response, network, and runtime details use localized fallback copy instead.
+- Hidden unexpected exceptions are sent to Sentry without PII. Expected API errors and deliberate request aborts are not reported.
+- Every recoverable UI flow needs a failure-and-retry regression test.
