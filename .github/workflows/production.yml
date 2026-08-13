@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.release-metadata.outputs.release_sha }}
       - uses: docker/login-action@v3
