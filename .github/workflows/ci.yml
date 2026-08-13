@@ -63,7 +63,7 @@ jobs:
         with:
           version: "0.11.28"
           enable-cache: true
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version-file: backend/.python-version
       - run: uv sync --all-groups
@@ -119,7 +119,7 @@ jobs:
         with:
           version: "0.11.28"
           enable-cache: true
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version-file: backend/.python-version
       - uses: actions/setup-node@v4
