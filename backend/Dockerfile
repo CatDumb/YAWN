@@ -1,6 +1,6 @@
 FROM ghcr.io/astral-sh/uv:0.11.28 AS uv
 
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 
 COPY --from=uv /uv /uvx /bin/
 
@@ -8,7 +8,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-install-project
 
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 ARG DEPLOYMENT_VERSION=development
 
