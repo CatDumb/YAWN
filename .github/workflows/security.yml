@@ -27,7 +27,7 @@ jobs:
       - run: |
           uv export --project backend --locked --no-dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/backend-requirements.txt"
           uv run --project backend python -m pip_audit -r "$RUNNER_TEMP/backend-requirements.txt" --require-hashes
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
