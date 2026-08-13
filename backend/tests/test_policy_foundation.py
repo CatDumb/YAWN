@@ -554,9 +554,7 @@ def test_final_period_admin_change_post_cannot_bypass_audited_reopen(
         name="Final FY26",
         start_date=date(2026, 1, 1),
         end_date=date(2026, 12, 31),
-        reconciliation_cutoff=timezone.make_aware(
-            datetime(2027, 1, 14, 23, 59, 59, 999999)
-        ),
+        reconciliation_cutoff=timezone.make_aware(datetime(2027, 1, 14, 23, 59, 59, 999999)),
         state=FiscalPeriod.State.FINAL,
     )
     original = {
@@ -604,9 +602,7 @@ def test_final_period_model_rejects_boundary_and_state_mutation(policy_employee)
         name="Immutable FY26",
         start_date=date(2026, 1, 1),
         end_date=date(2026, 12, 31),
-        reconciliation_cutoff=timezone.make_aware(
-            datetime(2027, 1, 14, 23, 59, 59, 999999)
-        ),
+        reconciliation_cutoff=timezone.make_aware(datetime(2027, 1, 14, 23, 59, 59, 999999)),
         state=FiscalPeriod.State.FINAL,
     )
     other_company = Company.objects.create(name="Other Immutable Co", slug="other-immutable-co")

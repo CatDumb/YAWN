@@ -71,9 +71,7 @@ def reopen_fiscal_periods(*, period_ids, actor, reason):
     )
     companies = {
         company.pk: company
-        for company in Company.objects.select_for_update()
-        .filter(pk__in=company_ids)
-        .order_by("pk")
+        for company in Company.objects.select_for_update().filter(pk__in=company_ids).order_by("pk")
     }
     periods = list(
         FiscalPeriod.objects.select_for_update()

@@ -1,10 +1,5 @@
 {
   "$schema": "https://github.com/IBM/audit-ci/raw/main/docs/schema.json",
   "moderate": true,
-  "allowlist": [
-    // No patched brace-expansion 1.x release exists as of 2026-07-27.
-    // Remove once eslint-config-next's plugins leave minimatch 3.x.
-    "GHSA-mh99-v99m-4gvg",
-  ],
   "report-type": "summary",
 }

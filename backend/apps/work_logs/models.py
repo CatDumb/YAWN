@@ -146,8 +146,7 @@ class FiscalPeriod(models.Model):  # noqa: DJ012
                     "state",
                 )
                 protected_change = any(
-                    getattr(original, field) != getattr(self, field)
-                    for field in protected_fields
+                    getattr(original, field) != getattr(self, field) for field in protected_fields
                 )
                 if (
                     original.state == self.State.FINAL
