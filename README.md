@@ -87,18 +87,15 @@ docker compose up --detach --force-recreate backend cleanup
 The Gmail address must be identical for `DJANGO_EMAIL_HOST_USER` and
 `DJANGO_DEFAULT_FROM_EMAIL`. Check Spam and All Mail during initial delivery tests.
 
-Reset Compose databases only when their local data is disposable. This permanently removes YAWN
-volumes plus legacy `wio-tracker` Compose and `wio-postgres` data, then starts a clean YAWN stack:
+Reset Compose databases only when their local data is disposable. This permanently removes current
+YAWN Compose volumes, then starts a clean YAWN stack:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\start-app.ps1 -ResetDatabase
 ```
 
-Include optional Redis:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\start-app.ps1 -WithRedis
-```
+If a legacy installation remains, inspect and recover or remove it manually; the launcher manages
+only the current YAWN Compose project.
 
 ### Manual local-process startup
 

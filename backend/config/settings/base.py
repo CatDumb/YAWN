@@ -38,8 +38,6 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "apps.accounts",
     "apps.work_logs",
-    "apps.office",
-    "apps.evidence",
     "apps.audit",
 ]
 
@@ -74,7 +72,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "config.wsgi.application"
-ASGI_APPLICATION = "config.asgi.application"
 
 DATABASES = {
     "default": env.db(

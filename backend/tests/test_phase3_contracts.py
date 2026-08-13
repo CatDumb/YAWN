@@ -3,11 +3,9 @@ import logging
 from datetime import date, timedelta
 from decimal import Decimal
 from io import StringIO
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import yaml
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.core.management import CommandError, call_command
@@ -16,15 +14,16 @@ from django.db.models import QuerySet
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
+from drf_spectacular.generators import SchemaGenerator
 
+import apps.work_logs.finalization as finalization
 from apps.accounts.models import Company, CompanyMembership, ManagerAssignment, User, UserPreference
 from apps.audit.models import AuditEvent
 from apps.work_logs.approvals import (
     approve_record,
     assign_pending_record,
-    expire_pending_for_period,
-    manager_membership,
     reject_scoped_record,
+    role_membership,
     undo_approval,
 )
 from apps.work_logs.finalization import run_finalization
@@ -63,23 +62,39 @@ def membership(*, email, company, role=CompanyMembership.Role.EMPLOYEE):
     return CompanyMembership.objects.create(user=user, company=company, role=role)
 
 
-def test_manager_scope_fails_closed_for_ambiguous_active_memberships(db):
-    user = User.objects.create_user(email="ambiguous-manager@example.com")
-    first_company = Company.objects.create(name="First", slug="first")
-    second_company = Company.objects.create(name="Second", slug="second")
-    CompanyMembership.objects.create(
-        user=user,
-        company=first_company,
-        role=CompanyMembership.Role.MANAGER,
-    )
-    CompanyMembership.objects.create(
-        user=user,
-        company=second_company,
-        role=CompanyMembership.Role.MANAGER,
-    )
+@pytest.mark.parametrize(
+    ("requested_role", "label", "membership_roles", "error"),
+    [
+        (CompanyMembership.Role.MANAGER, "manager", [CompanyMembership.Role.MANAGER], None),
+        (CompanyMembership.Role.HR_ADMIN, "HR/admin", [CompanyMembership.Role.HR_ADMIN], None),
+        (CompanyMembership.Role.MANAGER, "manager", [], "required"),
+        (CompanyMembership.Role.HR_ADMIN, "HR/admin", [], "required"),
+        (CompanyMembership.Role.MANAGER, "manager", [CompanyMembership.Role.EMPLOYEE], "required"),
+        (CompanyMembership.Role.HR_ADMIN, "HR/admin", [CompanyMembership.Role.MANAGER], "required"),
+        (
+            CompanyMembership.Role.HR_ADMIN,
+            "HR/admin",
+            [CompanyMembership.Role.HR_ADMIN] * 2,
+            "ambiguous",
+        ),
+    ],
+)
+def test_role_membership_matrix(db, requested_role, label, membership_roles, error):
+    user = User.objects.create_user(email="role-membership@example.com")
+    memberships = [
+        CompanyMembership.objects.create(
+            user=user,
+            company=Company.objects.create(name=f"Company {index}", slug=f"company-{index}"),
+            role=role,
+        )
+        for index, role in enumerate(membership_roles)
+    ]
 
-    with pytest.raises(ValidationError, match="ambiguous"):
-        manager_membership(user)
+    if error:
+        with pytest.raises(ValidationError, match=error):
+            role_membership(user, requested_role, label)
+    else:
+        assert role_membership(user, requested_role, label) == memberships[0]
 
 
 def test_approval_api_fails_closed_for_cross_role_company_ambiguity(client, db):
@@ -120,7 +135,7 @@ def test_approval_api_fails_closed_for_cross_role_company_ambiguity(client, db):
 
 
 def test_approval_openapi_requires_decision_request_body():
-    schema = yaml.safe_load((Path(__file__).parents[1] / "schema.yml").read_text())
+    schema = SchemaGenerator().get_schema(request=None, public=True)
     operation = schema["paths"]["/api/v1/approvals/{id}/{action}/"]["post"]
 
     assert operation["requestBody"]["required"] is True
@@ -128,6 +143,63 @@ def test_approval_openapi_requires_decision_request_body():
     if "$ref" in request_schema:
         request_schema = schema["components"]["schemas"][request_schema["$ref"].rsplit("/", 1)[1]]
     assert "version" in request_schema["required"]
+
+
+def test_wio_api_rejects_html_notes_on_create_and_update(client, db):
+    company = Company.objects.create(name="Yawn", slug="yawn")
+    employee = membership(email="wio-note@example.com", company=company)
+    today = timezone.localdate()
+    active_period(company, today)
+    client.force_login(employee.user)
+
+    created = client.post(
+        "/api/v1/work-in-office/",
+        {"work_date": today.isoformat(), "note": "<b>not plain text</b>"},
+        content_type="application/json",
+    )
+
+    assert created.status_code == 400
+    assert created.json()["note"] == ["Note must be plain text."]
+
+    draft = client.post(
+        "/api/v1/work-in-office/",
+        {"work_date": today.isoformat(), "save_as_draft": True},
+        content_type="application/json",
+    ).json()
+    updated = client.put(
+        f"/api/v1/work-in-office/{draft['id']}/",
+        {
+            "work_date": today.isoformat(),
+            "note": "<i>still not plain text</i>",
+            "save_as_draft": True,
+            "version": draft["version"],
+        },
+        content_type="application/json",
+    )
+
+    assert updated.status_code == 400
+    assert updated.json()["note"] == ["Note must be plain text."]
+
+
+def test_wio_openapi_documents_optional_draft_flag():
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+
+    for path, method in (
+        ("/api/v1/work-in-office/", "post"),
+        ("/api/v1/work-in-office/{id}/", "put"),
+    ):
+        request_schema = schema["paths"][path][method]["requestBody"]["content"][
+            "application/json"
+        ]["schema"]
+        if "$ref" in request_schema:
+            request_schema = schema["components"]["schemas"][
+                request_schema["$ref"].rsplit("/", 1)[1]
+            ]
+
+        draft_flag = request_schema["properties"]["save_as_draft"]
+        assert draft_flag["type"] == "boolean"
+        assert draft_flag["default"] is False
+        assert "save_as_draft" not in request_schema.get("required", [])
 
 
 def test_approval_revalidates_stale_manager_scope_inside_mutation(db):
@@ -2985,9 +3057,7 @@ def test_audited_reopen_creates_linked_successor_revision_without_erasing_histor
         review_state=WorkInOfficeRecord.ReviewState.APPROVED,
         approval_method=WorkInOfficeRecord.ApprovalMethod.MANAGER_APPROVED,
     )
-    steps = {"freeze_ledgers": freeze_period_ledgers}
-
-    run_finalization(period.pk, steps)
+    run_finalization(period.pk)
     first = FinalizedLedgerRevision.objects.get(period=period, employee=employee, revision=1)
 
     reopen_fiscal_periods(
@@ -3010,8 +3080,8 @@ def test_audited_reopen_creates_linked_successor_revision_without_erasing_histor
         ]
     )
 
-    run_finalization(period.pk, steps)
-    run_finalization(period.pk, steps)
+    run_finalization(period.pk)
+    run_finalization(period.pk)
 
     revisions = list(
         FinalizedLedgerRevision.objects.filter(period=period, employee=employee).order_by(
@@ -3027,7 +3097,7 @@ def test_audited_reopen_creates_linked_successor_revision_without_erasing_histor
     assert report["approved_days"] == Decimal("0")
 
 
-def test_finalization_runs_registered_steps_once(db):
+def test_finalization_runs_fixed_steps_once(db, monkeypatch):
     company = Company.objects.create(name="Yawn", slug="yawn")
     today = timezone.localdate()
     period = FiscalPeriod.objects.create(
@@ -3039,14 +3109,26 @@ def test_finalization_runs_registered_steps_once(db):
         state=FiscalPeriod.State.RECONCILIATION,
     )
     calls = []
-    final = run_finalization(
-        period.pk,
-        {"first": lambda _: calls.append("first") or {"ok": True}},
+    monkeypatch.setattr(
+        finalization,
+        "expire_pending_for_period",
+        lambda _: calls.append("expire") or 0,
     )
+    monkeypatch.setattr(
+        finalization,
+        "freeze_period_ledgers",
+        lambda _: calls.append("freeze") or {},
+    )
+    monkeypatch.setattr(
+        finalization,
+        "purge_intentions_for_period",
+        lambda _: calls.append("purge") or {},
+    )
+    final = run_finalization(period.pk)
     assert final.state == FiscalPeriod.State.FINAL
-    assert calls == ["first"]
-    run_finalization(period.pk, {"first": lambda _: calls.append("again")})
-    assert calls == ["first"]
+    assert calls == ["expire", "freeze", "purge"]
+    run_finalization(period.pk)
+    assert calls == ["expire", "freeze", "purge"]
 
 
 def test_finalization_locks_company_before_period(db, monkeypatch):
@@ -3069,12 +3151,14 @@ def test_finalization_locks_company_before_period(db, monkeypatch):
 
     monkeypatch.setattr(QuerySet, "select_for_update", track_select_for_update)
 
-    run_finalization(period.pk, {})
+    run_finalization(period.pk)
 
     assert locked_models[:2] == [Company, FiscalPeriod]
 
 
-def test_finalization_failure_retries_expiration_freeze_and_purge_without_duplicates(db, caplog):
+def test_finalization_failure_retries_expiration_freeze_and_purge_without_duplicates(
+    db, caplog, monkeypatch
+):
     company = Company.objects.create(name="Yawn", slug="yawn")
     employee = membership(email="employee@example.com", company=company)
     day = timezone.localdate() - timedelta(days=1)
@@ -3124,17 +3208,11 @@ def test_finalization_failure_retries_expiration_freeze_and_purge_without_duplic
             raise RuntimeError("injected purge failure")
         return purge_intentions_for_period(step_period)
 
-    steps = {
-        "expire_unresolved_claims": lambda step_period: {
-            "expired_claims": expire_pending_for_period(step_period)
-        },
-        "freeze_ledgers": freeze_period_ledgers,
-        "purge_private_intentions": flaky_purge,
-    }
+    monkeypatch.setattr(finalization, "purge_intentions_for_period", flaky_purge)
     caplog.set_level(logging.ERROR, logger="wio.finalization")
 
     with pytest.raises(RuntimeError, match="injected purge failure"):
-        run_finalization(period.pk, steps)
+        run_finalization(period.pk)
 
     assert "injected purge failure" not in caplog.text
     assert "Private" not in caplog.text
@@ -3153,7 +3231,7 @@ def test_finalization_failure_retries_expiration_freeze_and_purge_without_duplic
     assert WorkIntentionOccurrence.objects.filter(series=series).exists()
     assert not FiscalFinalizationStep.objects.filter(period=period).exists()
 
-    final = run_finalization(period.pk, steps)
+    final = run_finalization(period.pk)
     record.refresh_from_db()
 
     assert final.state == FiscalPeriod.State.FINAL

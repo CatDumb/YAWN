@@ -20,14 +20,11 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@hookform/resolvers": "^5.0.0",
     "@sentry/nextjs": "10.66.0",
     "lucide-react": "^1.27.0",
     "next": "16.2.11",
     "react": "19.2.7",
-    "react-dom": "19.2.7",
-    "react-hook-form": "^7.0.0",
-    "zod": "^4.0.0"
+    "react-dom": "19.2.7"
   },
   "devDependencies": {
     "@playwright/test": "1.55.1",
@@ -57,10 +54,5 @@
     "sharp@0.35.3": true,
     "unrs-resolver@1.12.2": true,
     "@sentry/cli@2.58.6": true
-  },
-  "optionalDependencies": {
-    "@rolldown/binding-win32-x64-msvc": "1.1.5",
-    "@tailwindcss/oxide-win32-x64-msvc": "4.3.3",
-    "lightningcss-win32-x64-msvc": "^1.32.0"
   }
 }

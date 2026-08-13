@@ -257,10 +257,6 @@ def lock_wio_period(*, company_id, work_date):
     return period
 
 
-def _company_day_end(day, company):
-    return timezone.make_aware(datetime.combine(day, time.max), ZoneInfo(company.timezone))
-
-
 def audit_record(*, actor, event_type, record, reason=None, **metadata):
     membership = CompanyMembership.objects.filter(
         user=actor, company=record.employee.company, is_active=True
@@ -378,9 +374,9 @@ def reject_record(*, record, actor, reason, period=None):
     if record.review_state != WorkInOfficeRecord.ReviewState.PENDING:
         raise ValidationError("Only pending office claims can be rejected.")
     now = current_time()
-    deadline = _company_day_end(
-        company_today(record.employee.company) + timedelta(days=1),
-        record.employee.company,
+    deadline = timezone.make_aware(
+        datetime.combine(company_today(record.employee.company) + timedelta(days=1), time.max),
+        ZoneInfo(record.employee.company.timezone),
     )
     if period and period.reconciliation_cutoff:
         deadline = min(deadline, period.reconciliation_cutoff)
@@ -772,14 +768,6 @@ def reverse_approved_record(*, record, actor, reason):
     return record
 
 
-def _cutoff_date_for_month(cutoff_month):
-    return date(
-        cutoff_month.year,
-        cutoff_month.month,
-        monthrange(cutoff_month.year, cutoff_month.month)[1],
-    )
-
-
 def transition_baseline_locked(employee, baseline):
     return WorkInOfficeRecord.objects.filter(
         employee=employee, work_date__gt=baseline.cutoff_date
@@ -842,7 +830,11 @@ def transition_baseline_state(employee):
 
 
 def _validate_transition_values(*, company, cutoff_month, target_days, achieved_days):
-    cutoff_date = _cutoff_date_for_month(cutoff_month)
+    cutoff_date = date(
+        cutoff_month.year,
+        cutoff_month.month,
+        monthrange(cutoff_month.year, cutoff_month.month)[1],
+    )
     if cutoff_date >= company_today(company):
         raise ValidationError("Transition cutoff month must be completed.")
     if target_days < 0 or achieved_days < 0:

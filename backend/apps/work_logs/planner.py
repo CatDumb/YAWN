@@ -39,26 +39,6 @@ PLANNER_PURGE_EMAIL = {
 }
 
 
-def employee_language(user):
-    preference = UserPreference.objects.filter(user=user).first()
-    return preference.language if preference else UserPreference.Language.ENGLISH
-
-
-def planner_purge_email_content(period, employee):
-    language = employee_language(employee.user)
-    copy = PLANNER_PURGE_EMAIL.get(language, PLANNER_PURGE_EMAIL[UserPreference.Language.ENGLISH])
-    return {
-        "subject": copy["subject"],
-        "message": copy["message"].format(
-            period=period.name,
-            start=period.start_date.isoformat(),
-            end=period.end_date.isoformat(),
-            cutoff=period.reconciliation_cutoff.isoformat(),
-            url=f"{settings.WIO_APP_URL}/planner",
-        ),
-    }
-
-
 def notify_planner_purge(period):
     """Notify affected users before purge without exposing private intention content."""
     employees = (
@@ -72,11 +52,22 @@ def notify_planner_purge(period):
     )
     sent = 0
     for employee in employees:
-        email = planner_purge_email_content(period, employee)
+        preference = UserPreference.objects.filter(user=employee.user).first()
+        language = preference.language if preference else UserPreference.Language.ENGLISH
+        copy = PLANNER_PURGE_EMAIL.get(
+            language,
+            PLANNER_PURGE_EMAIL[UserPreference.Language.ENGLISH],
+        )
         try:
             send_mail(
-                subject=email["subject"],
-                message=email["message"],
+                subject=copy["subject"],
+                message=copy["message"].format(
+                    period=period.name,
+                    start=period.start_date.isoformat(),
+                    end=period.end_date.isoformat(),
+                    cutoff=period.reconciliation_cutoff.isoformat(),
+                    url=f"{settings.WIO_APP_URL}/planner",
+                ),
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[employee.user.email],
                 fail_silently=False,
@@ -104,28 +95,24 @@ def active_period(employee):
     return period
 
 
-def dates_for(*, start, end, weekdays=None):
-    if start > end:
-        raise ValidationError("Start date must not be after end date.")
-    allowed = set(weekdays or range(7))
-    return [
-        start + timedelta(days=index)
-        for index in range((end - start).days + 1)
-        if (start + timedelta(days=index)).weekday() in allowed
-    ]
-
-
 def preview(*, employee, start, end, weekdays=None):
     period = active_period(employee)
+    if start > end:
+        raise ValidationError("Start date must not be after end date.")
     if start < company_today(employee.company) or end > period.end_date:
         raise ValidationError("Intentions must be today or later inside the active fiscal period.")
+    allowed = set(weekdays or range(7))
     result = []
     existing = set(
         WorkIntentionOccurrence.objects.filter(
             employee=employee, date__range=(start, end)
         ).values_list("date", flat=True)
     )
-    for day in dates_for(start=start, end=end, weekdays=weekdays):
+    for day in [
+        start + timedelta(days=index)
+        for index in range((end - start).days + 1)
+        if (start + timedelta(days=index)).weekday() in allowed
+    ]:
         reason = eligibility_reason(employee, day)
         result.append(
             {

@@ -6,7 +6,7 @@ Django and Django REST Framework API for YAWN.
 
 - Authentication, company membership, roles, and permissions
 - Daily work logs, ratio rules, approvals, and endorsements
-- Evidence access, floor plans, seats, reports, and audit history
+- Reports and audit history; evidence access, floor plans, and seats remain future scope
 - PostgreSQL persistence and Django migrations
 
 ## Setup
@@ -103,7 +103,7 @@ Backend uses `drf-spectacular` to generate an OpenAPI 3 schema. It exposes:
 /api/schema/redoc/        ReDoc
 ```
 
-Development exposes docs publicly. Production restricts schema views to staff users. CI validates committed `schema.yml` against generated API definitions.
+Development exposes docs publicly. Production restricts schema views to staff users. CI generates and validates the OpenAPI schema from current Django configuration.
 
 ## Layout
 
@@ -111,9 +111,8 @@ Development exposes docs publicly. Production restricts schema views to staff us
 config/                   Django settings and URL configuration
 apps/accounts/            Users, roles, and manager assignments
 apps/work_logs/           Logs, ratios, approvals, and endorsements
-apps/office/              Floor plans and seats
-apps/evidence/            Private evidence upload and access
 apps/audit/               Audit events
 ```
 
 Settings are split across `config/settings/base.py`, `development.py`, `test.py`, and `production.py`. Production fails closed without a strong secret and allowed hosts.
+Office and evidence apps will be created with their first implemented model or endpoint.

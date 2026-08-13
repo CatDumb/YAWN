@@ -14,7 +14,7 @@ Status: local repair validation proven 2026-07-24; baseline release acceptance B
 
 - [ ] Cutoff is an exact timezone-aware timestamp with the agreed default.
 - [ ] Persisted lifecycle coordinator advances states idempotently and audits transitions.
-- [ ] Final state waits for registered finalization steps; retry never duplicates effects.
+- [ ] Final state waits for fixed expire/freeze/purge checkpoints; retry never duplicates effects.
 - [ ] Base locations, project/manager assignments, and ratio rules preserve effective-dated history.
 - [ ] Overlaps and incomplete required rule coverage are rejected.
 - [ ] Historical corrections append versions instead of mutating used inputs.

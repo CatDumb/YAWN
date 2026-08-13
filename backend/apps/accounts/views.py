@@ -74,21 +74,17 @@ def _eligible_user(email):
     return user if active_scope_count == 1 else None
 
 
-def _rate_limit_keys(email, fingerprint):
-    return sorted(
-        {
-            salted_hmac("wio.otp.request.email", email).hexdigest(),
-            salted_hmac("wio.otp.request.fingerprint", fingerprint).hexdigest(),
-        }
-    )
-
-
 def _lock_rate_limits(email, fingerprint):
     if connection.vendor != "postgresql":
         return
 
     with connection.cursor() as cursor:
-        for key in _rate_limit_keys(email, fingerprint):
+        for key in sorted(
+            {
+                salted_hmac("wio.otp.request.email", email).hexdigest(),
+                salted_hmac("wio.otp.request.fingerprint", fingerprint).hexdigest(),
+            }
+        ):
             lock_id = int(key[:16], 16)
             if lock_id >= 2**63:
                 lock_id -= 2**64

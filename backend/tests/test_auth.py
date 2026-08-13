@@ -3,7 +3,6 @@ import re
 from datetime import timedelta
 from importlib import import_module
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -21,7 +20,6 @@ from apps.accounts.models import (
     User,
     lock_single_active_company,
 )
-from apps.accounts.permissions import IsHRAdmin, IsManagerOrHRAdmin
 from apps.accounts.services import send_approval_email, send_otp_email
 from apps.accounts.views import _lock_rate_limits
 from apps.audit.models import AuditEvent
@@ -504,25 +502,6 @@ def test_compose_bootstraps_configured_signup_company():
 
     assert "slug=settings.WIO_SIGNUP_COMPANY_SLUG" in compose
     assert "Company.objects.get_or_create(slug=slug" in compose
-
-
-@pytest.mark.django_db
-def test_company_role_permissions(active_user):
-    membership = active_user.memberships.get()
-    request = SimpleNamespace(user=active_user)
-
-    assert not IsManagerOrHRAdmin().has_permission(request, None)
-    assert not IsHRAdmin().has_permission(request, None)
-
-    membership.role = CompanyMembership.Role.MANAGER
-    membership.save(update_fields=["role"])
-    assert IsManagerOrHRAdmin().has_permission(request, None)
-    assert not IsHRAdmin().has_permission(request, None)
-
-    membership.role = CompanyMembership.Role.HR_ADMIN
-    membership.save(update_fields=["role"])
-    assert IsManagerOrHRAdmin().has_permission(request, None)
-    assert IsHRAdmin().has_permission(request, None)
 
 
 def test_purge_expired_otps_rejects_negative_retention():

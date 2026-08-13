@@ -26,7 +26,7 @@ The implemented authentication, fiscal-policy, ratio-foundation, and personal WI
 - Migrate reconciliation cutoff from date to timezone-aware timestamp.
 - Default cutoff to the final microsecond of the fourteenth local calendar day after period end.
 - Replace advisory derived state with one persisted, audited, idempotent transition coordinator.
-- Define registered finalization steps and retry state so `Final` is written only after all available steps succeed.
+- Define fixed expire/freeze/purge checkpoints and retry state so `Final` is written only after all checkpoints succeed.
 - Preserve explicit audited reopen and correction-revision lineage.
 
 ### 3. Versioned policy and ratio foundation

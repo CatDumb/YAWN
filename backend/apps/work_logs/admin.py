@@ -232,13 +232,8 @@ class EffectiveDatedAdmin(AuditedAdmin):
             self.message_user(request, error.messages[0], messages.ERROR)
 
 
-@admin.register(EmployeeProjectAssignment)
+@admin.register(EmployeeProjectAssignment, EmployeeBaseLocationAssignment)
 class AssignmentAdmin(EffectiveDatedAdmin):
-    company_lookup = "employee__company"
-
-
-@admin.register(EmployeeBaseLocationAssignment)
-class EmployeeBaseLocationAssignmentAdmin(EffectiveDatedAdmin):
     company_lookup = "employee__company"
 
 

@@ -9,12 +9,6 @@ from apps.audit.models import AuditEvent
 from apps.work_logs.models import WorkInOfficeRecord, WorkIntentionSeries
 
 
-def validate_plain_text_note(value):
-    if strip_tags(value) != value:
-        raise serializers.ValidationError("Note must be plain text.")
-    return value
-
-
 class PlannerIntentionInputSerializer(serializers.Serializer):
     start_date = serializers.DateField()
     end_date = serializers.DateField(required=False)
@@ -46,11 +40,6 @@ class TransitionBaselineInputSerializer(serializers.Serializer):
 
 
 class WorkInOfficeRecordSerializer(serializers.ModelSerializer):
-    save_as_draft = serializers.BooleanField(
-        write_only=True,
-        required=False,
-        default=False,
-    )
     employee_name = serializers.SerializerMethodField()
     employee_email = serializers.EmailField(source="employee.user.email", read_only=True)
     base_location_name = serializers.CharField(
@@ -59,9 +48,6 @@ class WorkInOfficeRecordSerializer(serializers.ModelSerializer):
 
     def get_employee_name(self, obj) -> str:
         return obj.employee.user.get_full_name() or obj.employee.user.email
-
-    def validate_note(self, value):
-        return validate_plain_text_note(value)
 
     class Meta:
         model = WorkInOfficeRecord
@@ -72,7 +58,6 @@ class WorkInOfficeRecordSerializer(serializers.ModelSerializer):
             "base_location_name",
             "work_date",
             "location_choice",
-            "save_as_draft",
             "review_state",
             "note",
             "approver_note",
@@ -180,7 +165,9 @@ class WorkInOfficeCreateSerializer(serializers.Serializer):
     save_as_draft = serializers.BooleanField(required=False, default=False)
 
     def validate_note(self, value):
-        return validate_plain_text_note(value)
+        if strip_tags(value) != value:
+            raise serializers.ValidationError("Note must be plain text.")
+        return value
 
 
 class WorkInOfficeUpdateSerializer(WorkInOfficeCreateSerializer):
@@ -189,10 +176,6 @@ class WorkInOfficeUpdateSerializer(WorkInOfficeCreateSerializer):
 
 class VersionRequestSerializer(serializers.Serializer):
     version = serializers.IntegerField(min_value=1)
-
-
-class ApprovalDecisionVersionSerializer(VersionRequestSerializer):
-    pass
 
 
 class ApprovalDecisionReasonSerializer(VersionRequestSerializer):

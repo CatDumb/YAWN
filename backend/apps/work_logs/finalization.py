@@ -1,7 +1,6 @@
 """Shared, retry-safe fiscal finalization coordinator."""
 
 import logging
-from collections.abc import Callable
 from uuid import uuid4
 
 from django.core.exceptions import ValidationError
@@ -10,7 +9,10 @@ from django.utils import timezone
 
 from apps.accounts.models import Company
 from apps.audit.models import AuditEvent
+from apps.work_logs.approvals import expire_pending_for_period
 from apps.work_logs.models import FiscalFinalizationStep, FiscalPeriod
+from apps.work_logs.planner import purge_intentions_for_period
+from apps.work_logs.reports import freeze_period_ledgers
 
 logger = logging.getLogger("wio.finalization")
 
@@ -22,7 +24,7 @@ def _step_current(period: FiscalPeriod, checkpoint: FiscalFinalizationStep) -> b
 
 
 @transaction.atomic
-def run_finalization(period_id: int, steps: dict[str, Callable[[FiscalPeriod], dict | None]]):
+def run_finalization(period_id: int):
     company_id = FiscalPeriod.objects.values_list("company_id", flat=True).get(pk=period_id)
     Company.objects.select_for_update().get(pk=company_id)
     period = FiscalPeriod.objects.select_for_update().get(pk=period_id)
@@ -32,7 +34,15 @@ def run_finalization(period_id: int, steps: dict[str, Callable[[FiscalPeriod], d
         return period
     if timezone.now() < period.reconciliation_cutoff:
         raise ValidationError("Fiscal period cutoff has not passed.")
-    for key, effect in steps.items():
+    steps = (
+        (
+            "expire_unresolved_claims",
+            lambda current_period: {"expired_claims": expire_pending_for_period(current_period)},
+        ),
+        ("freeze_ledgers", freeze_period_ledgers),
+        ("purge_private_intentions", purge_intentions_for_period),
+    )
+    for key, effect in steps:
         checkpoint, _ = FiscalFinalizationStep.objects.select_for_update().get_or_create(
             period=period, key=key
         )
@@ -61,9 +71,11 @@ def run_finalization(period_id: int, steps: dict[str, Callable[[FiscalPeriod], d
             metadata={"step": key, "effect_token": str(checkpoint.effect_token)},
         )
     if any(not _step_current(period, checkpoint) for checkpoint in period.finalization_steps.all()):
-        raise ValidationError("Registered finalization steps are incomplete.")
-    if set(period.finalization_steps.values_list("key", flat=True)) != set(steps):
-        raise ValidationError("Finalization step registration changed during execution.")
+        raise ValidationError("Fixed expire/freeze/purge checkpoints are incomplete.")
+    if set(period.finalization_steps.values_list("key", flat=True)) != {key for key, _ in steps}:
+        raise ValidationError(
+            "Fixed expire/freeze/purge checkpoint sequence changed during execution."
+        )
     period.state = FiscalPeriod.State.FINAL
     period.save(update_fields=["state", "updated_at"])
     AuditEvent.objects.create(
@@ -72,21 +84,3 @@ def run_finalization(period_id: int, steps: dict[str, Callable[[FiscalPeriod], d
         target_id=str(period.pk),
     )
     return period
-
-
-def finalize_period(period_id: int):
-    """Only supported Phase 3 finalization sequence; callers cannot omit a required effect."""
-    from apps.work_logs.approvals import expire_pending_for_period
-    from apps.work_logs.planner import purge_intentions_for_period
-    from apps.work_logs.reports import freeze_period_ledgers
-
-    return run_finalization(
-        period_id,
-        {
-            "expire_unresolved_claims": lambda period: {
-                "expired_claims": expire_pending_for_period(period)
-            },
-            "freeze_ledgers": freeze_period_ledgers,
-            "purge_private_intentions": purge_intentions_for_period,
-        },
-    )

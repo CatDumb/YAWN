@@ -32,14 +32,15 @@ Record commit SHA, environment, date, operator, and artifacts for each command.
 
 ### Repository CI
 
-- `release-config`
 - `commit-message`
 - `backend`
 - `frontend`
 - `e2e`
-- `containers`
+- Security workflow `container-scan` matrix for backend and frontend images
 
-Source of truth: `.github/workflows/ci.yml`.
+Source of truth: `.github/workflows/ci.yml` and `.github/workflows/security.yml`.
+
+OpenAPI evidence must generate and validate the schema from the current Django configuration; no committed schema artifact or generated-file comparison is required. Historical entries that mention schema parity describe the prior process only.
 
 ### Backend release candidate checks
 
@@ -50,7 +51,6 @@ Source of truth: `.github/workflows/ci.yml`.
 - `uv run python manage.py migrate --noinput`
 - `uv run python manage.py check`
 - `uv run python manage.py spectacular --validate --file schema.generated.yml --settings=config.settings.test`
-- `diff -u schema.yml schema.generated.yml`
 
 ### Frontend release candidate checks
 

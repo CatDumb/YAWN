@@ -19,9 +19,8 @@ from apps.audit.models import AuditEvent
 from apps.work_logs.approvals import (
     approve_record,
     assign_pending_record,
-    hr_membership,
-    manager_membership,
     reject_scoped_record,
+    role_membership,
     scoped_pending,
     undo_approval,
 )
@@ -31,7 +30,6 @@ from apps.work_logs.serializers import (
     ApprovalDecisionAssignSerializer,
     ApprovalDecisionReasonSerializer,
     ApprovalDecisionRequestSerializer,
-    ApprovalDecisionVersionSerializer,
     ApprovalWorkInOfficeRecordDetailSerializer,
     ApprovalWorkInOfficeRecordSerializer,
     AuditEventSerializer,
@@ -396,7 +394,7 @@ class ApprovalQueueView(APIView):
     )
     def get(self, request):
         try:
-            manager = manager_membership(request.user)
+            manager = role_membership(request.user, CompanyMembership.Role.MANAGER, "manager")
         except DjangoValidationError as error:
             return Response({"detail": error.messages[0]}, status=403)
         records = ordered_approval_queue(manager)
@@ -413,7 +411,7 @@ class ApprovalDetailView(APIView):
     @extend_schema(responses=ApprovalWorkInOfficeRecordDetailSerializer)
     def get(self, request, pk):
         try:
-            manager = manager_membership(request.user)
+            manager = role_membership(request.user, CompanyMembership.Role.MANAGER, "manager")
         except DjangoValidationError as error:
             return Response({"detail": error.messages[0]}, status=403)
         record = get_object_or_404(
@@ -430,7 +428,7 @@ class ApprovalOwnershipQueueView(APIView):
     )
     def get(self, request):
         try:
-            hr = hr_membership(request.user)
+            hr = role_membership(request.user, CompanyMembership.Role.HR_ADMIN, "HR/admin")
         except DjangoValidationError as error:
             return Response({"detail": error.messages[0]}, status=403)
         try:
@@ -478,7 +476,7 @@ class ApprovalTimelineView(APIView):
     )
     def get(self, request, pk):
         try:
-            manager = manager_membership(request.user)
+            manager = role_membership(request.user, CompanyMembership.Role.MANAGER, "manager")
         except DjangoValidationError as error:
             return Response({"detail": error.messages[0]}, status=403)
         try:
@@ -503,7 +501,7 @@ class PendingAssignmentQueueView(APIView):
     )
     def get(self, request):
         try:
-            hr = hr_membership(request.user)
+            hr = role_membership(request.user, CompanyMembership.Role.HR_ADMIN, "HR/admin")
         except DjangoValidationError as error:
             return Response({"detail": error.messages[0]}, status=403)
         try:
@@ -528,7 +526,7 @@ class ApprovalAssigneeView(APIView):
     @extend_schema(responses=ApprovalAssigneeSerializer(many=True))
     def get(self, request):
         try:
-            hr = hr_membership(request.user)
+            hr = role_membership(request.user, CompanyMembership.Role.HR_ADMIN, "HR/admin")
         except DjangoValidationError as error:
             return Response({"detail": error.messages[0]}, status=403)
         managers = (
@@ -557,7 +555,7 @@ class ApprovalCountView(APIView):
     @extend_schema(responses=OpenApiTypes.OBJECT)
     def get(self, request):
         try:
-            manager = manager_membership(request.user)
+            manager = role_membership(request.user, CompanyMembership.Role.MANAGER, "manager")
         except DjangoValidationError:
             return Response({"count": 0, "oldest_submitted_at": None})
         records = scoped_pending(manager)
@@ -575,8 +573,8 @@ class ApprovalDecisionView(APIView):
     )
     def post(self, request, pk, action):
         serializer_class = {
-            "approve": ApprovalDecisionVersionSerializer,
-            "undo": ApprovalDecisionVersionSerializer,
+            "approve": VersionRequestSerializer,
+            "undo": VersionRequestSerializer,
             "reject": ApprovalDecisionReasonSerializer,
             "assign": ApprovalDecisionAssignSerializer,
         }.get(action)
@@ -593,7 +591,7 @@ class ApprovalDecisionView(APIView):
         try:
             version = data["version"]
             if action == "assign":
-                hr = hr_membership(request.user)
+                hr = role_membership(request.user, CompanyMembership.Role.HR_ADMIN, "HR/admin")
                 record = assign_pending_record(
                     hr=hr,
                     record_id=pk,
@@ -602,7 +600,7 @@ class ApprovalDecisionView(APIView):
                     reason=data["reason"],
                 )
             else:
-                manager = manager_membership(request.user)
+                manager = role_membership(request.user, CompanyMembership.Role.MANAGER, "manager")
                 if action == "approve":
                     record = approve_record(manager=manager, record_id=pk, version=version)
                 elif action == "reject":

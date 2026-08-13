@@ -24,16 +24,6 @@ from apps.work_logs.views import membership_for
 logger = logging.getLogger("wio.dashboard")
 
 
-def unavailable_reason(employee, current, today):
-    if reason := eligibility_reason(employee, current):
-        return reason
-    if current < today - timedelta(days=1):
-        return "This work date is closed. Ask HR/admin for an audited override."
-    if current > today:
-        return "Future dates belong in Planner."
-    return None
-
-
 def eligibility_reason_map(employee, dates):
     if not dates:
         return {}

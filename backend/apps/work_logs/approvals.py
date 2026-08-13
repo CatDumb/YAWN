@@ -36,27 +36,15 @@ REJECTION_EMAIL = {
 }
 
 
-def employee_language(user):
-    preference = UserPreference.objects.filter(user=user).first()
-    return preference.language if preference else UserPreference.Language.ENGLISH
-
-
-def rejection_email_content(record):
-    language = employee_language(record.employee.user)
+def send_rejection_email(record):
+    preference = UserPreference.objects.filter(user=record.employee.user).first()
+    language = preference.language if preference else UserPreference.Language.ENGLISH
     copy = REJECTION_EMAIL.get(language, REJECTION_EMAIL[UserPreference.Language.ENGLISH])
     url = f"{settings.WIO_APP_URL}/work-in-office/{record.pk}"
-    return {
-        "subject": copy["subject"],
-        "message": copy["message"].format(date=record.work_date.isoformat(), url=url),
-    }
-
-
-def send_rejection_email(record):
-    email = rejection_email_content(record)
     try:
         send_mail(
-            subject=email["subject"],
-            message=email["message"],
+            subject=copy["subject"],
+            message=copy["message"].format(date=record.work_date.isoformat(), url=url),
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[record.employee.user.email],
             fail_silently=False,
@@ -69,7 +57,7 @@ def send_rejection_email(record):
         raise RejectionEmailDeliveryError from error
 
 
-def manager_membership(user):
+def role_membership(user, role, label):
     memberships = list(
         CompanyMembership.objects.filter(
             user=user,
@@ -81,33 +69,12 @@ def manager_membership(user):
         .order_by("pk")[:2]
     )
     if not memberships:
-        raise ValidationError("An active manager membership is required.")
+        raise ValidationError(f"An active {label} membership is required.")
     if len(memberships) != 1:
-        raise ValidationError("Active manager membership scope is ambiguous.")
+        raise ValidationError(f"Active {label} membership scope is ambiguous.")
     membership = memberships[0]
-    if membership.role != CompanyMembership.Role.MANAGER:
-        raise ValidationError("An active manager membership is required.")
-    return membership
-
-
-def hr_membership(user):
-    memberships = list(
-        CompanyMembership.objects.filter(
-            user=user,
-            user__is_active=True,
-            is_active=True,
-            company__is_active=True,
-        )
-        .select_related("company")
-        .order_by("pk")[:2]
-    )
-    if not memberships:
-        raise ValidationError("An active HR/admin membership is required.")
-    if len(memberships) != 1:
-        raise ValidationError("Active HR/admin membership scope is ambiguous.")
-    membership = memberships[0]
-    if membership.role != CompanyMembership.Role.HR_ADMIN:
-        raise ValidationError("An active HR/admin membership is required.")
+    if membership.role != role:
+        raise ValidationError(f"An active {label} membership is required.")
     return membership
 
 

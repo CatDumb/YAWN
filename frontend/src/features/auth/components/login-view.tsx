@@ -1,14 +1,9 @@
 import { OTP_LENGTH, type AuthFlow } from "../use-auth-flow";
 
 import { AuthShell } from "./auth-shell";
-import { FieldError } from "./field-error";
 
 export function LoginView({ flow }: { flow: AuthFlow }) {
   const { error, isSubmitting, login, notice, showAccessRequest } = flow;
-  const emailError = login.form.formState.errors.email?.message;
-  const hasAttemptedEmailSubmit = login.form.formState.submitCount > 0;
-  const showEmailError =
-    hasAttemptedEmailSubmit || Boolean(login.emailInput?.trim());
 
   return (
     <AuthShell>
@@ -75,10 +70,11 @@ export function LoginView({ flow }: { flow: AuthFlow }) {
                     value={login.otpCode.trim()}
                   />
                 </label>
-                <FieldError
-                  id="sign-in-otp-error"
-                  message={login.otpError ?? undefined}
-                />
+                {login.otpError ? (
+                  <p className="text-error mt-1 text-sm" id="sign-in-otp-error">
+                    {login.otpError}
+                  </p>
+                ) : null}
               </fieldset>
               <button
                 className="btn btn-link self-start px-0"
@@ -111,30 +107,18 @@ export function LoginView({ flow }: { flow: AuthFlow }) {
             <form
               aria-busy={isSubmitting}
               className="space-y-5"
-              noValidate
-              onSubmit={login.form.handleSubmit(login.requestOtp)}
+              onSubmit={login.requestOtp}
             >
               <fieldset className="fieldset">
                 <legend className="fieldset-legend">Email</legend>
                 <input
-                  {...login.form.register("email")}
                   aria-label="Email"
-                  aria-describedby={
-                    emailError && showEmailError
-                      ? "sign-in-email-error"
-                      : undefined
-                  }
-                  aria-invalid={emailError && showEmailError ? true : undefined}
                   className="input w-full"
                   inputMode="email"
+                  name="email"
                   placeholder="name@company.com"
                   required
                   type="email"
-                />
-                <FieldError
-                  id="sign-in-email-error"
-                  message={emailError}
-                  visible={showEmailError}
                 />
               </fieldset>
               <div className="space-y-2">

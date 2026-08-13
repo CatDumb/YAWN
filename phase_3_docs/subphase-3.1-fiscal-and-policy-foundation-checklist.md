@@ -9,7 +9,7 @@ Status: local implementation validation proven 2026-07-24; release acceptance BL
 - [ ] At most one period can be Active.
 - [ ] Default cutoff supports 14-day reconciliation.
 - [ ] Audited reopen/correction path exists.
-- [ ] Idempotent coordinator audits due state transitions and gates Final on registered steps.
+- [ ] Idempotent coordinator audits the fixed expire, freeze, and purge checkpoints before Final.
 - [ ] Clone-previous-period admin workflow requires review before save.
 
 ## Policy data

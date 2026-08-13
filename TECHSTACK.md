@@ -7,8 +7,6 @@
 - React
 - Tailwind CSS 4
 - daisyUI 5
-- React Hook Form
-- Zod
 
 Frontend UI rules:
 
@@ -28,14 +26,13 @@ Frontend UI rules:
 - drf-spectacular OpenAPI 3 schema, Swagger UI, and ReDoc
 - uv dependency management with committed lockfile
 
-Django REST Framework exposes REST APIs for users, projects, work logs, approvals, endorsements, evidence, reports, floor plans, and seats.
+Django REST Framework exposes REST APIs for users, work logs, approvals, endorsements, and reports. Evidence, floor-plan, and seat APIs will be added with their first implementation.
 
 ## Data and infrastructure
 
 - PostgreSQL
 - Django email OTP authentication flow
 - S3-compatible private object storage for evidence images
-- Redis optional later for background jobs and rate limiting
 - Vercel for frontend deployment
 - Render or equivalent managed container hosting for Django backend
 - Docker and Docker Compose
@@ -60,7 +57,7 @@ managed DB      private evidence    OTP delivery
 
 - Use `Dockerfile` for reproducible frontend and backend builds.
 - Use `compose.yaml` for local development.
-- Local Compose services: frontend, backend, PostgreSQL, and optional Redis.
+- Local Compose services: frontend, backend, and PostgreSQL.
 - Keep production database and evidence storage outside containers.
 - Do not use container filesystem for persistent user uploads.
 - Use multi-stage builds where useful to reduce production image size.
@@ -166,8 +163,6 @@ OpenTelemetry supports Python traces and metrics; logs remain a developing signa
   backend/apps/    Django applications
     accounts/      Users, roles, and manager assignments
     work_logs/     Logs, ratios, approvals, and endorsements
-    office/        Floor plans and seats
-    evidence/      Private evidence upload and access
     audit/         Audit events
   backend/manage.py Django management entry point
   tests/             Cross-service and end-to-end tests
@@ -182,14 +177,13 @@ OpenTelemetry supports Python traces and metrics; logs remain a developing signa
 - `/api/v1/work-logs`
 - `/api/v1/approvals`
 - `/api/v1/endorsements`
-- `/api/v1/evidence`
 - `/api/v1/reports`
-- `/api/v1/floor-plans`
-- `/api/v1/seats`
+
+Future scope: `/api/v1/floor-plans` and `/api/v1/seats`.
 
 ## Core backend entities
 
-`User`, `Role`, `ManagerAssignment`, `Project`, `ProjectStatusRule`, `WorkLog`, `WorkLogEvidence`, `FloorPlan`, `Seat`, `SeatAssignment`, `Endorsement`, `AuditEvent`.
+`User`, `Role`, `ManagerAssignment`, `Project`, `ProjectStatusRule`, `WorkLog`, `Endorsement`, `AuditEvent`. Evidence, floor-plan, and seat entities will be introduced with their first implementation.
 
 ## Initial backend decisions
 

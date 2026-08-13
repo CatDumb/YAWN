@@ -16,7 +16,7 @@ from django.utils import timezone
 from apps.accounts.models import Company, CompanyMembership, ManagerAssignment, User
 from apps.audit.models import AuditEvent
 from apps.work_logs import admin as work_logs_admin
-from apps.work_logs.admin import FiscalPeriodAdmin, WorkInOfficeRecordAdmin
+from apps.work_logs.admin import AssignmentAdmin, FiscalPeriodAdmin, WorkInOfficeRecordAdmin
 from apps.work_logs.lifecycle import advance_fiscal_period_states
 from apps.work_logs.models import (
     ApprovedLeave,
@@ -533,6 +533,12 @@ def test_work_log_admin_is_scoped_to_hr_company(policy_employee):
         request,
         FiscalPeriod(company=Company.objects.create(name="Other", slug="other")),
     )
+
+
+def test_employee_assignment_admin_registration_is_shared():
+    assert isinstance(admin.site._registry[EmployeeProjectAssignment], AssignmentAdmin)
+    assert isinstance(admin.site._registry[EmployeeBaseLocationAssignment], AssignmentAdmin)
+    assert type(admin.site._registry[ProjectBaseLocationAssignment]) is not AssignmentAdmin
 
 
 def test_final_period_admin_change_post_cannot_bypass_audited_reopen(

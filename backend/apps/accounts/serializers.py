@@ -12,16 +12,6 @@ class AccessRequestSerializer(serializers.Serializer):
     def validate_email(self, value):
         return value.strip().lower()
 
-    def validate_first_name(self, value):
-        if not value:
-            raise serializers.ValidationError("This field may not be blank.")
-        return value
-
-    def validate_last_name(self, value):
-        if not value:
-            raise serializers.ValidationError("This field may not be blank.")
-        return value
-
 
 class OTPRequestSerializer(serializers.Serializer):
     email = serializers.EmailField()

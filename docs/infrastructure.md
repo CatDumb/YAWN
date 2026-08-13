@@ -5,7 +5,7 @@ Infrastructure and deployment support for YAWN.
 ## Responsibilities
 
 - Docker and Docker Compose configuration
-- Local PostgreSQL and optional Redis services
+- Local PostgreSQL service
 - Deployment configuration for frontend and backend hosting
 - Environment and operational configuration
 
@@ -19,11 +19,9 @@ Run from the repository root:
 powershell -ExecutionPolicy Bypass -File .\scripts\start-app.ps1
 ```
 
-Optional Redis:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\start-app.ps1 -WithRedis
-```
+The launcher manages only the current YAWN Compose project. Inspect and recover or remove any
+legacy installation manually. Redis should be added only when an application client or worker
+needs it.
 
 ## Deployment setup
 

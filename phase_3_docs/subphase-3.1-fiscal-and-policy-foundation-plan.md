@@ -19,7 +19,7 @@ System can reproduce an employee's expected-office obligation for any range with
 - Add `FiscalPeriod` with name, start/end dates, exact timezone-aware reconciliation cutoff, and persisted Upcoming/Active/Reconciliation/Final state.
 - Prevent overlap and enforce at most one Active period.
 - Advance normal status through an idempotent audited coordinator when dates make transitions due.
-- Write Final only after registered finalization steps succeed.
+- Write Final only after the fixed expire, freeze, and purge checkpoints succeed.
 - Support exceptional audited reopen/correction as linked revisions.
 - Provide reviewed clone-from-previous-period admin action.
 

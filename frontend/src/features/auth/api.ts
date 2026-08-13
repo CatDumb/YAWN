@@ -2,7 +2,11 @@ import { apiFetch } from "../../lib/api";
 export { responseDetail } from "../../lib/errors";
 
 import { isCurrentUser, type CurrentUser } from "./contracts";
-import type { AccessRequestValues } from "./schemas";
+export type AccessRequestValues = {
+  email: string;
+  first_name: string;
+  last_name: string;
+};
 
 export function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
