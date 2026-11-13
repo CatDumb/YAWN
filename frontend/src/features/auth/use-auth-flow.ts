@@ -13,13 +13,13 @@ import {
 } from "./api";
 import { isCurrentUser } from "./contracts";
 
-export type AuthView = "access-request" | "access-confirmed" | "login";
+type AuthView ="access-request" | "access-confirmed" | "login";
 
 export const GENERIC_SIGNUP_MESSAGE = "Your access request is pending review.";
-export const GENERIC_OTP_MESSAGE =
+const GENERIC_OTP_MESSAGE =
   "If your account is eligible, a sign-in code has been sent.";
 export const OTP_LENGTH = 6;
-export const OTP_RESEND_SECONDS = 60;
+const OTP_RESEND_SECONDS = 60;
 
 export function useAuthFlow() {
   const router = useRouter();

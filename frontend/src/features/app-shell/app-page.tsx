@@ -6,7 +6,7 @@ const contentWidthClasses = {
   wide: "max-w-none",
 } as const;
 
-export type AppPageContentWidth = keyof typeof contentWidthClasses;
+type AppPageContentWidth = keyof typeof contentWidthClasses;
 
 type AppPageProps = Omit<ComponentPropsWithoutRef<"main">, "children"> & {
   children: ReactNode;

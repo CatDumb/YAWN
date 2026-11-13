@@ -2,7 +2,7 @@ import english from "./messages/en.json";
 import vietnamese from "./messages/vi.json";
 
 export type Language = "en" | "vi";
-export type Messages = typeof english;
+type Messages =typeof english;
 
 const catalogs: Record<Language, Messages> = {
   en: english,

@@ -1,4 +1,4 @@
-export type Membership = {
+type Membership = {
   company: string;
   company_id: number;
   role: string;

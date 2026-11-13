@@ -33,7 +33,7 @@ export function verifyOtp(challengeId: string, email: string, code: string) {
   });
 }
 
-export type CurrentUserResult = {
+type CurrentUserResult = {
   response: Response;
   user: CurrentUser | null;
 };

@@ -24,7 +24,7 @@ export type WorkInOfficeRecord = {
   approval_method?: "manager_approved" | "self_approved" | null;
 };
 
-export type WorkInOfficeAuditEvent = {
+type WorkInOfficeAuditEvent = {
   id: number;
   event_type: string;
   metadata: Record<string, string | number | null>;
@@ -36,17 +36,17 @@ export type WorkInOfficeRecordDetail = WorkInOfficeRecord & {
   audit_timeline_next_page: number | null;
 };
 
-export type WorkInOfficeAuditPage = {
+type WorkInOfficeAuditPage = {
   results: WorkInOfficeAuditEvent[];
   next_page: number | null;
 };
 
-export type WorkInOfficeMetadata = {
+type WorkInOfficeMetadata = {
   company_date: string;
   timezone: string;
 };
 
-export type WorkInOfficeInput = {
+type WorkInOfficeInput = {
   work_date: string;
   location_choice?: WorkInOfficeRecord["location_choice"];
   note?: string;
