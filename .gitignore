@@ -12,7 +12,7 @@ __pycache__/
 .Python
 .venv/
 venv/
-env/
+/env/
 .uv-cache/
 .uv-python/
 .npm-cache/
@@ -59,15 +59,14 @@ backend/.e2e/
 
 .scripts
 
+# Claude Code personal state
+.claude/settings.local.json
+CLAUDE.local.md
+
 # Local agent and Impeccable state
-.agents/
-.codex/
-.github/hooks/
-.github/skills/
 .impeccable/
 .past-docs/
 graphify-out/
-.graphify-venv/
 DESIGN.md
 PRODUCT.md
 recap.md
